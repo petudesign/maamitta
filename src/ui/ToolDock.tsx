@@ -55,9 +55,12 @@ export function ToolDock({
   onOpenMobileSheet,
 }: ToolDockProps) {
   const t = getMessages(locale).tools;
+  const canPlaceCrosshair =
+    showCrosshair &&
+    (activeTool === 'area' || activeTool === 'cutout' || activeTool === 'line');
 
   return (
-    <>
+    <div className="map-bottom-stack">
       {(hasGeometry || statusMessage || isConfirmingClear) && (
         <div className="measure-hud tabular-nums" aria-live="polite">
           {isConfirmingClear ? (
@@ -152,6 +155,18 @@ export function ToolDock({
         </div>
       )}
 
+      {canPlaceCrosshair && (
+        <button
+          type="button"
+          className="crosshair-place-btn"
+          onClick={onPlaceCrosshairPoint}
+          data-tooltip={t.addPointTooltip}
+        >
+          <Plus size={16} />
+          <span>{t.addPoint}</span>
+        </button>
+      )}
+
       <nav
         className="tool-dock"
         aria-label={locale === 'en' ? 'Measurement tools' : 'Mittaustyökalut'}
@@ -218,20 +233,7 @@ export function ToolDock({
           <span className="tool-chip-label">{t.line}</span>
         </button>
 
-        {(showCrosshair || hasClearable) && <span className="dock-sep" />}
-
-        {showCrosshair ? (
-          <button
-            type="button"
-            className="tool-chip"
-            data-active="true"
-            onClick={onPlaceCrosshairPoint}
-            data-tooltip={t.addPointTooltip}
-          >
-            <Plus size={16} />
-            <span>{t.addPoint}</span>
-          </button>
-        ) : null}
+        {hasClearable && <span className="dock-sep" />}
 
         {hasClearable && (
           <>
@@ -271,6 +273,6 @@ export function ToolDock({
           <span>{t.calculateMobile}</span>
         </button>
       </nav>
-    </>
+    </div>
   );
 }

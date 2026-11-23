@@ -6,6 +6,7 @@
   height: 100dvh;
   display: flex;
   overflow: hidden;
+  overflow: clip;
   background: var(--surface-base);
 }
 
@@ -15,6 +16,9 @@
   flex: 1;
   min-width: 0;
   height: 100%;
+  overflow: hidden;
+  overflow: clip;
+  contain: layout style;
   background: #e5e3dc;
 }
 
@@ -65,13 +69,11 @@
   gap: 8px;
   height: 44px;
   padding: 0 15px 0 10px;
-  background: rgba(24, 78, 59, 0.82);
-  backdrop-filter: blur(14px) saturate(160%);
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  background: rgba(24, 78, 59, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.24);
   border-radius: var(--radius-pill);
-  box-shadow: 0 4px 16px rgba(10, 32, 24, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 16px rgba(10, 32, 24, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
   font-weight: 650;
   font-size: 15px;
   letter-spacing: -0.015em;
@@ -487,33 +489,78 @@
   z-index: 1;
 }
 
-/* Live measurement HUD on map */
-.measure-hud {
+/* Stacked bottom HUD, optional crosshair action, and tool dock */
+.map-bottom-stack {
   position: absolute;
   left: 50%;
-  bottom: calc(82px + var(--safe-bottom));
-  transform: translateX(-50%) scale(1);
-  transform-origin: bottom center;
-  z-index: 18;
+  bottom: calc(16px + var(--safe-bottom));
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 16px);
+  pointer-events: none;
+}
+
+.map-bottom-stack > * {
+  pointer-events: auto;
+}
+
+/* Live measurement HUD on map */
+.measure-hud {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 8px 14px;
-  background: var(--surface-glass);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.96);
   border-radius: var(--radius-pill);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-map-float);
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
   opacity: 1;
+  transform: scale(1);
+  transform-origin: bottom center;
   transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+}
+
+.measure-hud .hud-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @starting-style {
   .measure-hud {
     opacity: 0;
-    transform: translateX(-50%) translateY(6px) scale(0.96);
+    transform: translateY(6px) scale(0.96);
   }
+}
+
+.crosshair-place-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  border: 0;
+  background: var(--accent-primary);
+  color: var(--ink-on-accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(24, 78, 59, 0.34),
+    0 0 0 1.5px rgba(255, 255, 255, 0.85);
+  transition: transform var(--duration-press) var(--ease-out),
+    background-color 140ms var(--ease-out);
+}
+
+.crosshair-place-btn:active {
+  transform: scale(0.96);
 }
 
 .hud-metric {
@@ -714,13 +761,11 @@
   gap: 6px;
   padding: 5px 10px;
   border-radius: var(--radius-pill);
-  background: var(--surface-glass);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  box-shadow: var(--shadow-sm);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: var(--shadow-map-float);
   font-size: 11.5px;
   font-weight: 550;
-  color: var(--ink-secondary);
+  color: var(--ink-primary);
   pointer-events: none;
   font-variant-numeric: tabular-nums;
 }
@@ -745,19 +790,14 @@
 
 /* Bottom floating drawing dock on map */
 .tool-dock {
-  position: absolute;
-  left: 50%;
-  bottom: calc(16px + var(--safe-bottom));
-  transform: translateX(-50%);
-  z-index: 20;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px;
   background: var(--surface-elevated);
   border-radius: var(--radius-pill);
-  box-shadow: var(--shadow-md);
-  max-width: calc(100% - 24px);
+  box-shadow: var(--shadow-map-float);
+  max-width: 100%;
 }
 
 .tool-chip {
@@ -824,6 +864,7 @@
   border-left: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
+  contain: layout style;
   z-index: 30;
 }
 
@@ -1535,31 +1576,47 @@
     transform: translateY(0);
   }
 
-  .measure-hud {
-    bottom: calc(80px + var(--safe-bottom));
-  }
-
-  .tool-dock {
-    padding: 5px;
-    gap: 4px;
-    max-width: calc(100vw - 20px);
-  }
-
-  .tool-chip {
-    min-width: 44px;
-    height: 44px;
-    padding: 0;
-    font-size: 13.5px;
+  .map-bottom-stack {
+    bottom: calc(12px + var(--safe-bottom));
+    max-width: calc(100vw - 16px);
     gap: 6px;
   }
 
+  .measure-hud {
+    padding: 6px 12px;
+    gap: 8px;
+    max-width: calc(100vw - 24px);
+  }
+
+  .tool-dock {
+    padding: 4px;
+    gap: 2px;
+    max-width: calc(100vw - 16px);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tool-dock::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tool-chip {
+    min-width: 36px;
+    height: 40px;
+    padding: 0;
+    font-size: 13px;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
   .mobile-sheet-trigger {
-    padding: 0 14px;
+    padding: 0 10px;
+    font-size: 12.5px;
   }
 
   .tool-chip svg {
-    width: 18px;
-    height: 18px;
+    width: 17px;
+    height: 17px;
   }
 
   .dock-sep {
@@ -1571,8 +1628,45 @@
   }
 
   .maplibregl-ctrl-bottom-right {
-    margin-bottom: calc(80px + var(--safe-bottom));
+    margin-bottom: calc(116px + var(--safe-bottom));
   }
+}
+
+/* High-contrast floating UI over light/busy topographic maps */
+.app-shell .maplibregl-ctrl-group {
+  border: 0 !important;
+  box-shadow: var(--shadow-map-float) !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+}
+
+.app-shell[data-base-layer='topo'] .search-input-row,
+.app-shell[data-base-layer='topo'] .btn-icon,
+.app-shell[data-base-layer='topo'] .tool-dock,
+.app-shell[data-base-layer='topo'] .measure-hud,
+.app-shell[data-base-layer='topo'] .imagery-badge,
+.app-shell[data-base-layer='topo'] .layer-popover,
+.app-shell[data-base-layer='topo'] .search-results,
+.app-shell[data-base-layer='topo'] .map-layers-pill,
+.app-shell[data-base-layer='topo'] .map-layers-panel,
+.app-shell[data-base-layer='topo'] .maplibregl-ctrl-group {
+  box-shadow: var(--shadow-map-float-topo) !important;
+}
+
+.app-shell[data-base-layer='topo'] .maplibregl-ctrl-attrib {
+  background: rgba(255, 255, 255, 0.95) !important;
+  color: var(--ink-primary) !important;
+  box-shadow: 0 2px 8px rgba(10, 18, 15, 0.18),
+    0 0 0 1px rgba(20, 26, 24, 0.28) !important;
+}
+
+.app-shell[data-base-layer='topo'] .brand-pill {
+  box-shadow: 0 6px 20px rgba(10, 18, 15, 0.34),
+    0 0 0 1.5px rgba(255, 255, 255, 0.9);
+}
+
+.app-shell[data-base-layer='topo'] .search-input-row:focus-within {
+  box-shadow: 0 0 0 2px var(--accent-primary), var(--shadow-map-float-topo) !important;
 }
 
 /* Clear-undo action inside HUD */

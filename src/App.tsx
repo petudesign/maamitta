@@ -1253,7 +1253,7 @@ export function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-base-layer={baseLayer}>
       <a href="#calculator-panel" className="skip-link">
         {locale === 'en' ? 'Skip to calculator' : 'Siirry laskuriin'}
       </a>
