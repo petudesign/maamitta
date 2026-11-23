@@ -1171,11 +1171,14 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           className="map-canvas"
           aria-label={locale === 'en' ? 'Measurement map' : 'Mittauskartta'}
         />
-        {showCrosshair && (
-          <div className="crosshair" aria-hidden="true">
-            <span className="crosshair-dot" />
-          </div>
-        )}
+        {showCrosshair &&
+          (activeTool === 'area' ||
+            activeTool === 'cutout' ||
+            activeTool === 'line') && (
+            <div className="crosshair" aria-hidden="true">
+              <span className="crosshair-dot" />
+            </div>
+          )}
         {showSoilMap && (
           <div
             className="soil-legend"

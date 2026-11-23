@@ -134,11 +134,7 @@ export function App() {
   const [showParcels, setShowParcels] = useState<boolean>(IS_MML_ENABLED);
   const [showSoilMap, setShowSoilMap] = useState<boolean>(false);
   const [activeTool, setActiveTool] = useState<DrawTool>('pan');
-  const [showCrosshair, setShowCrosshair] = useState<boolean>(() =>
-    typeof window !== 'undefined'
-      ? window.matchMedia('(pointer: coarse)').matches
-      : false
-  );
+  const [showCrosshair, setShowCrosshair] = useState<boolean>(false);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [mapLayersOpen, setMapLayersOpen] = useState(true);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
