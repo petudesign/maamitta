@@ -621,7 +621,7 @@ function queryHandleAtPoint(
 }
 
 const GTK_SOIL_WMS_TILE =
-  'https://gtkdata.gtk.fi/arcgis/services/Rajapinnat/GTK_Maapera_WMS/MapServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&STYLES=&LAYERS=maapera_200k_maalajit,maapera_50k_pohjamaalajit,maapera_20k_pohjamaalajit&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}';
+  'https://gtkdata.gtk.fi/arcgis/services/Rajapinnat/GTK_Maapera_WMS/MapServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&STYLES=&LAYERS=maapera_200k_maalajit,maapera_50k_pohjamaalajit,maapera_20k_pohjamaalajit&SRS=EPSG:3857&WIDTH=512&HEIGHT=512&BBOX={bbox-epsg-3857}';
 
 const SOIL_LEGEND_ITEMS = [
   { color: '#f28482', fi: 'Kallio', en: 'Bedrock' },
@@ -644,7 +644,9 @@ function attachSoilMapLayer(map: maplibregl.Map, visible: boolean) {
     map.addSource(SOIL_SOURCE_ID, {
       type: 'raster',
       tiles: [GTK_SOIL_WMS_TILE],
-      tileSize: 256,
+      tileSize: 512,
+      minzoom: 8,
+      maxzoom: 15,
       attribution: '© GTK Maaperäkartta (CC BY 4.0)',
     });
   }
@@ -765,7 +767,6 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
         dragRotate: false,
         pitchWithRotate: false,
         touchPitch: false,
-        trackResize: false,
         attributionControl: { compact: true },
       });
 
@@ -941,30 +942,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
 
       mapRef.current = map;
 
-      // Coalesce container resizes so dragging the browser window doesn't stall
-      // UI layout with synchronous Retina WebGL reallocations & moveend cascades.
-      let resizeTimer: number | null = null;
-      let hasInitialSize = false;
-      const resizeObserver = new ResizeObserver(() => {
-        if (!hasInitialSize) {
-          hasInitialSize = true;
-          return;
-        }
-        if (resizeTimer !== null) {
-          window.clearTimeout(resizeTimer);
-        }
-        resizeTimer = window.setTimeout(() => {
-          resizeTimer = null;
-          map.resize();
-        }, 100);
-      });
-      resizeObserver.observe(containerRef.current);
-
       return () => {
-        resizeObserver.disconnect();
-        if (resizeTimer !== null) {
-          window.clearTimeout(resizeTimer);
-        }
         window.removeEventListener('mouseup', endDrag);
         for (const m of edgeMarkersRef.current) m.remove();
         edgeMarkersRef.current = [];
