@@ -27,46 +27,58 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 5173,
-      proxy: mmlApiKey
-        ? {
-            // MML WMTS -karttatiilet (ortokuva, maastokartta, kiinteistöjaotus)
-            '/api/mml-wmts': {
-              target: 'https://avoin-karttakuva.maanmittauslaitos.fi',
-              changeOrigin: true,
-              rewrite: (path) => {
-                const clean = path.replace(/^\/api\/mml-wmts/, '/avoin/wmts/1.0.0');
-                const sep = clean.includes('?') ? '&' : '?';
-                return `${clean}${sep}api-key=${encodeURIComponent(mmlApiKey)}`;
+      proxy: {
+        // GTK Maaperäkartta WMS (same-origin proxy avoids CORS blocks in WebGL)
+        '/api/gtk-wms': {
+          target: 'https://gtkdata.gtk.fi',
+          changeOrigin: true,
+          rewrite: (path) =>
+            path.replace(
+              /^\/api\/gtk-wms/,
+              '/arcgis/services/Rajapinnat/GTK_Maapera_WMS/MapServer/WMSServer'
+            ),
+        },
+        ...(mmlApiKey
+          ? {
+              // MML WMTS -karttatiilet (ortokuva, maastokartta, kiinteistöjaotus)
+              '/api/mml-wmts': {
+                target: 'https://avoin-karttakuva.maanmittauslaitos.fi',
+                changeOrigin: true,
+                rewrite: (path) => {
+                  const clean = path.replace(/^\/api\/mml-wmts/, '/avoin/wmts/1.0.0');
+                  const sep = clean.includes('?') ? '&' : '?';
+                  return `${clean}${sep}api-key=${encodeURIComponent(mmlApiKey)}`;
+                },
               },
-            },
-            // MML Kiinteistötiedot OGC API Features (viralliset kiinteistöpalstat)
-            '/api/mml-features': {
-              target: 'https://avoin-paikkatieto.maanmittauslaitos.fi',
-              changeOrigin: true,
-              rewrite: (path) => {
-                const clean = path.replace(
-                  /^\/api\/mml-features/,
-                  '/kiinteisto-avoin/simple-features/v3'
-                );
-                const sep = clean.includes('?') ? '&' : '?';
-                return `${clean}${sep}api-key=${encodeURIComponent(mmlApiKey)}`;
+              // MML Kiinteistötiedot OGC API Features (viralliset kiinteistöpalstat)
+              '/api/mml-features': {
+                target: 'https://avoin-paikkatieto.maanmittauslaitos.fi',
+                changeOrigin: true,
+                rewrite: (path) => {
+                  const clean = path.replace(
+                    /^\/api\/mml-features/,
+                    '/kiinteisto-avoin/simple-features/v3'
+                  );
+                  const sep = clean.includes('?') ? '&' : '?';
+                  return `${clean}${sep}api-key=${encodeURIComponent(mmlApiKey)}`;
+                },
               },
-            },
-            // MML Maastotietokanta OGC API Features (viralliset rakennuspolygonit)
-            '/api/mml-maasto': {
-              target: 'https://avoin-paikkatieto.maanmittauslaitos.fi',
-              changeOrigin: true,
-              rewrite: (path) => {
-                const clean = path.replace(
-                  /^\/api\/mml-maasto/,
-                  '/maastotiedot/features/v1'
-                );
-                const sep = clean.includes('?') ? '&' : '?';
-                return `${clean}${sep}api-key=${encodeURIComponent(mmlApiKey)}`;
+              // MML Maastotietokanta OGC API Features (viralliset rakennuspolygonit)
+              '/api/mml-maasto': {
+                target: 'https://avoin-paikkatieto.maanmittauslaitos.fi',
+                changeOrigin: true,
+                rewrite: (path) => {
+                  const clean = path.replace(
+                    /^\/api\/mml-maasto/,
+                    '/maastotiedot/features/v1'
+                  );
+                  const sep = clean.includes('?') ? '&' : '?';
+                  return `${clean}${sep}api-key=${encodeURIComponent(mmlApiKey)}`;
+                },
               },
-            },
-          }
-        : undefined,
+            }
+          : {}),
+      },
     },
     define: {
       __MML_PROXY_ENABLED__: JSON.stringify(mmlProxyEnabled),

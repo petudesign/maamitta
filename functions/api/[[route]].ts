@@ -17,22 +17,36 @@ interface PagesContext {
 
 const UPSTREAMS: Record<
   string,
-  { origin: string; pathPrefix: string; ttlSeconds: number }
+  {
+    origin: string;
+    pathPrefix: string;
+    ttlSeconds: number;
+    requiresMmlKey: boolean;
+  }
 > = {
   'mml-wmts': {
     origin: 'https://avoin-karttakuva.maanmittauslaitos.fi',
     pathPrefix: '/avoin/wmts/1.0.0',
     ttlSeconds: 86_400,
+    requiresMmlKey: true,
   },
   'mml-features': {
     origin: 'https://avoin-paikkatieto.maanmittauslaitos.fi',
     pathPrefix: '/kiinteisto-avoin/simple-features/v3',
     ttlSeconds: 3_600,
+    requiresMmlKey: true,
   },
   'mml-maasto': {
     origin: 'https://avoin-paikkatieto.maanmittauslaitos.fi',
     pathPrefix: '/maastotiedot/features/v1',
     ttlSeconds: 3_600,
+    requiresMmlKey: true,
+  },
+  'gtk-wms': {
+    origin: 'https://gtkdata.gtk.fi',
+    pathPrefix: '/arcgis/services/Rajapinnat/GTK_Maapera_WMS/MapServer/WMSServer',
+    ttlSeconds: 86_400,
+    requiresMmlKey: false,
   },
 };
 
@@ -50,19 +64,20 @@ function hasUnsafeSegment(segments: string[]): boolean {
 }
 
 export const onRequestGet = async (context: PagesContext): Promise<Response> => {
-  const apiKey = context.env.MML_API_KEY;
-  if (!apiKey) {
-    return new Response('MML_API_KEY secret is not configured', {
-      status: 503,
-      headers: { 'Cache-Control': 'no-store' },
-    });
-  }
-
   const segments = context.params.route ?? [];
   const prefix = segments[0];
   if (!prefix || !(prefix in UPSTREAMS)) {
     return new Response('Unknown proxy route', {
       status: 404,
+      headers: { 'Cache-Control': 'no-store' },
+    });
+  }
+
+  const target = UPSTREAMS[prefix]!;
+  const apiKey = context.env.MML_API_KEY;
+  if (target.requiresMmlKey && !apiKey) {
+    return new Response('MML_API_KEY secret is not configured', {
+      status: 503,
       headers: { 'Cache-Control': 'no-store' },
     });
   }
@@ -82,17 +97,19 @@ export const onRequestGet = async (context: PagesContext): Promise<Response> => 
     });
   }
 
-  const target = UPSTREAMS[prefix]!;
   let upstreamUrl: URL;
   try {
     const restPath = restSegments.join('/');
     upstreamUrl = new URL(
-      `${target.origin}${target.pathPrefix}/${restPath}`
+      restPath
+        ? `${target.origin}${target.pathPrefix}/${restPath}`
+        : `${target.origin}${target.pathPrefix}`
     );
     // Double-check normalized URL stays strictly inside allowed origin and prefix
     if (
       upstreamUrl.origin !== target.origin ||
-      !upstreamUrl.pathname.startsWith(`${target.pathPrefix}/`)
+      (upstreamUrl.pathname !== target.pathPrefix &&
+        !upstreamUrl.pathname.startsWith(`${target.pathPrefix}/`))
     ) {
       return new Response('Invalid upstream path', {
         status: 400,
@@ -112,7 +129,9 @@ export const onRequestGet = async (context: PagesContext): Promise<Response> => 
       upstreamUrl.searchParams.set(key, value);
     }
   });
-  upstreamUrl.searchParams.set('api-key', apiKey);
+  if (target.requiresMmlKey && apiKey) {
+    upstreamUrl.searchParams.set('api-key', apiKey);
+  }
 
   try {
     const upstreamRes = await fetch(upstreamUrl.toString(), {

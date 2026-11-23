@@ -621,7 +621,7 @@ function queryHandleAtPoint(
 }
 
 const GTK_SOIL_WMS_TILE =
-  'https://gtkdata.gtk.fi/arcgis/services/Rajapinnat/GTK_Maapera_WMS/MapServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&STYLES=&LAYERS=maapera_200k_maalajit,maapera_50k_pohjamaalajit,maapera_20k_pohjamaalajit&SRS=EPSG:3857&WIDTH=512&HEIGHT=512&BBOX={bbox-epsg-3857}';
+  '/api/gtk-wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&STYLES=&LAYERS=maapera_200k_maalajit,maapera_50k_pohjamaalajit,maapera_20k_pohjamaalajit&SRS=EPSG:3857&WIDTH=512&HEIGHT=512&BBOX={bbox-epsg-3857}';
 
 const SOIL_LEGEND_ITEMS = [
   { color: '#f28482', fi: 'Kallio', en: 'Bedrock' },
