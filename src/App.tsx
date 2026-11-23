@@ -133,7 +133,7 @@ export function App() {
   const [baseLayer, setBaseLayer] = useState<BaseLayerId>('satellite');
   const [showParcels, setShowParcels] = useState<boolean>(IS_MML_ENABLED);
   const [showSoilMap, setShowSoilMap] = useState<boolean>(false);
-  const [activeTool, setActiveTool] = useState<DrawTool>('area');
+  const [activeTool, setActiveTool] = useState<DrawTool>('pick');
   const [showCrosshair, setShowCrosshair] = useState<boolean>(() =>
     typeof window !== 'undefined'
       ? window.matchMedia('(pointer: coarse)').matches
@@ -585,6 +585,7 @@ export function App() {
 
   const handleUndo = useCallback(() => {
     setGeometry((prev) => {
+      // 1. Prioritize the active drawing tool if it has points
       if (activeTool === 'area' && prev.areaPoints.length > 0) {
         return { ...prev, areaPoints: prev.areaPoints.slice(0, -1) };
       }
@@ -603,6 +604,25 @@ export function App() {
       }
       if (activeTool === 'line' && prev.linePoints.length > 0) {
         return { ...prev, linePoints: prev.linePoints.slice(0, -1) };
+      }
+
+      // 2. Fallback: allow Ctrl+Z / Undo from any tool (including Pick)
+      if (prev.activeCutout.length > 0) {
+        return { ...prev, activeCutout: prev.activeCutout.slice(0, -1) };
+      }
+      if (prev.cutouts.length > 0) {
+        const last = prev.cutouts[prev.cutouts.length - 1] ?? [];
+        return {
+          ...prev,
+          cutouts: prev.cutouts.slice(0, -1),
+          activeCutout: last.slice(0, -1),
+        };
+      }
+      if (prev.linePoints.length > 0) {
+        return { ...prev, linePoints: prev.linePoints.slice(0, -1) };
+      }
+      if (prev.areaPoints.length > 0) {
+        return { ...prev, areaPoints: prev.areaPoints.slice(0, -1) };
       }
       return prev;
     });
@@ -1117,17 +1137,13 @@ export function App() {
     locale,
   ]);
 
-  const canUndo =
-    (activeTool === 'area' && geometry.areaPoints.length > 0) ||
-    (activeTool === 'cutout' &&
-      (geometry.activeCutout.length > 0 || geometry.cutouts.length > 0)) ||
-    (activeTool === 'line' && geometry.linePoints.length > 0);
-
   const hasGeometry =
     geometry.areaPoints.length > 0 ||
     geometry.cutouts.length > 0 ||
     geometry.activeCutout.length > 0 ||
     geometry.linePoints.length > 0;
+
+  const canUndo = hasGeometry;
 
   // Desktop keyboard shortcuts (instant, ignored while typing in inputs)
   useEffect(() => {
