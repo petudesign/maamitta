@@ -620,6 +620,17 @@ function queryHandleAtPoint(
   return null;
 }
 
+/**
+ * True once the style JSON is parsed and layers/sources can be added.
+ * Unlike map.isStyleLoaded(), this does NOT wait for every raster tile to finish,
+ * so geometry and parcel updates aren't silently dropped while slow tiles load.
+ */
+function isStyleReady(map: maplibregl.Map): boolean {
+  return Boolean(
+    (map as unknown as { style?: { _loaded?: boolean } }).style?._loaded
+  );
+}
+
 const GTK_SOIL_WMS_TILE =
   '/api/gtk-wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&STYLES=&LAYERS=maapera_200k_maalajit,maapera_50k_pohjamaalajit,maapera_20k_pohjamaalajit&SRS=EPSG:3857&WIDTH=512&HEIGHT=512&BBOX={bbox-epsg-3857}';
 
@@ -966,7 +977,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
     // Toggle GTK Soil Map WMS overlay
     useEffect(() => {
       const map = mapRef.current;
-      if (!map || !map.isStyleLoaded()) return;
+      if (!map || !isStyleReady(map)) return;
       attachSoilMapLayer(map, showSoilMap);
     }, [showSoilMap]);
 
@@ -977,7 +988,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
 
       if (!showParcels || !IS_MML_ENABLED) {
         parcelsDataRef.current = EMPTY_FC;
-        if (map.isStyleLoaded()) {
+        if (isStyleReady(map)) {
           attachVectorParcelLayer(map, baseLayer, EMPTY_FC);
         }
         return;
@@ -985,7 +996,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
 
       if (map.getZoom() < 14.2) {
         parcelsDataRef.current = EMPTY_FC;
-        if (map.isStyleLoaded()) {
+        if (isStyleReady(map)) {
           attachVectorParcelLayer(map, baseLayer, EMPTY_FC);
         }
         return;
@@ -997,14 +1008,14 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           const b = map.getBounds();
           const bbox = `${b.getWest().toFixed(5)},${b.getSouth().toFixed(5)},${b.getEast().toFixed(5)},${b.getNorth().toFixed(5)}`;
           const res = await fetch(
-            `/api/mml-features/collections/PalstanSijaintitiedot/items?bbox=${bbox}&limit=160`,
+            `/api/mml-features/collections/PalstanSijaintitiedot/items?bbox=${bbox}&limit=1000`,
             { signal: controller.signal }
           );
           if (!res.ok || controller.signal.aborted) return;
           const fc = (await res.json()) as FeatureCollection;
           if (controller.signal.aborted) return;
           parcelsDataRef.current = fc;
-          if (map.isStyleLoaded()) {
+          if (isStyleReady(map)) {
             attachVectorParcelLayer(map, baseLayer, fc);
           }
         } catch {
@@ -1023,7 +1034,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
       const map = mapRef.current;
       if (!map) return;
 
-      if (map.isStyleLoaded()) {
+      if (isStyleReady(map)) {
         attachMeasurementLayers(map, geometry, savedGeometries);
       }
     }, [geometry, savedGeometries]);
