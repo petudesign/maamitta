@@ -1,0 +1,37 @@
+export function MaamittaLogo({
+  size = 24,
+  bare = false,
+}: {
+  size?: number;
+  bare?: boolean;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 32 32"
+      fill="none"
+      aria-hidden="true"
+    >
+      {!bare && <rect width="32" height="32" rx="7" fill="#184E3B" />}
+      <path
+        d="M5 9C5 6.79 6.79 5 9 5H17.5L13.5 19.5H5V9Z"
+        fill="#FFFFFF"
+      />
+      <path
+        d="M20.5 5H23C25.21 5 27 6.79 27 9V14.5H17.9L20.5 5Z"
+        fill="#FFFFFF"
+        fillOpacity="0.38"
+      />
+      <path
+        d="M17.1 17.5H27V23C27 25.21 25.21 27 23 27H14.5L17.1 17.5Z"
+        fill="#FFFFFF"
+        fillOpacity="0.62"
+      />
+      <path
+        d="M5 22.5H12.7L11.5 27H9C6.79 27 5 25.21 5 23V22.5Z"
+        fill="#7DD3FC"
+      />
+    </svg>
+  );
+}

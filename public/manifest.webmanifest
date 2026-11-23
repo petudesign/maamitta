@@ -1,0 +1,18 @@
+{
+  "name": "Maamitta — Karttamittaus ja materiaalilaskuri",
+  "short_name": "Maamitta",
+  "description": "Mittaa tontit, pihat ja linjat kartalta, vähennä rakennukset automaattisesti ja laske materiaalimäärät PDF-arvioksi.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF9F6",
+  "theme_color": "#184E3B",
+  "lang": "fi",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

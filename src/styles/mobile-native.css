@@ -1,0 +1,62 @@
+/* Mobile-native platform baseline (see docs/DESIGN_SYSTEM.md §5) */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  text-size-adjust: 100%;
+  font-family: var(--font-sans);
+  color: var(--ink-primary);
+  background: var(--surface-base);
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Never zoom on iOS Safari when focusing inputs */
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: 16px;
+  color: var(--ink-primary);
+}
+
+/* Eliminate 300ms tap delay and prevent accidental text selection on controls only */
+button,
+a,
+[role='button'] {
+  font-family: inherit;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Tabular numbers for live measurements and pricing */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reduced motion respect */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
