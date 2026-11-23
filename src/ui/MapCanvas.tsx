@@ -1,6 +1,11 @@
 import type { Feature, FeatureCollection, Point } from 'geojson';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+
+// Default is 16 shared slots for ALL raster sources. A slow overlay (GTK WMS can take
+// 10–30 s per tile) would otherwise hold slots and leave base-map tiles grey.
+// Base map hosts serve over HTTP/2, so a higher ceiling is safe.
+maplibregl.setMaxParallelImageRequests(32);
 import {
   forwardRef,
   useEffect,

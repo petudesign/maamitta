@@ -22,6 +22,8 @@ const UPSTREAMS: Record<
     pathPrefix: string;
     ttlSeconds: number;
     requiresMmlKey: boolean;
+    /** Abort slow upstreams so they don't tie up the browser's tile slots */
+    timeoutMs?: number;
   }
 > = {
   'mml-wmts': {
@@ -45,8 +47,9 @@ const UPSTREAMS: Record<
   'gtk-wms': {
     origin: 'https://gtkdata.gtk.fi',
     pathPrefix: '/arcgis/services/Rajapinnat/GTK_Maapera_WMS/MapServer/WMSServer',
-    ttlSeconds: 86_400,
+    ttlSeconds: 604_800,
     requiresMmlKey: false,
+    timeoutMs: 9_000,
   },
 };
 
@@ -133,8 +136,18 @@ export const onRequestGet = async (context: PagesContext): Promise<Response> => 
     upstreamUrl.searchParams.set('api-key', apiKey);
   }
 
+  const isTileOverlay = prefix === 'gtk-wms';
+  const emptyTile = () =>
+    new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+
+  const controller = target.timeoutMs ? new AbortController() : null;
+  const timer = controller
+    ? setTimeout(() => controller.abort(), target.timeoutMs)
+    : null;
+
   try {
     const upstreamRes = await fetch(upstreamUrl.toString(), {
+      signal: controller?.signal,
       cf: {
         cacheEverything: true,
         cacheTtlByStatus: {
@@ -143,6 +156,14 @@ export const onRequestGet = async (context: PagesContext): Promise<Response> => 
         },
       },
     } as RequestInit);
+
+    // WMS servers report errors as XML with HTTP 200 — never cache or forward those as tiles
+    if (
+      isTileOverlay &&
+      !(upstreamRes.headers.get('content-type') ?? '').startsWith('image/')
+    ) {
+      return emptyTile();
+    }
 
     const headers = new Headers(upstreamRes.headers);
     headers.delete('set-cookie');
@@ -161,9 +182,13 @@ export const onRequestGet = async (context: PagesContext): Promise<Response> => 
       headers,
     });
   } catch {
-    return new Response('Upstream MML service unavailable', {
+    // Slow/unavailable overlay: return an empty tile quickly instead of hanging the map
+    if (isTileOverlay) return emptyTile();
+    return new Response('Upstream service unavailable', {
       status: 502,
       headers: { 'Cache-Control': 'no-store' },
     });
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 };

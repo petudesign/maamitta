@@ -32,6 +32,9 @@ export default defineConfig(({ mode }) => {
         '/api/gtk-wms': {
           target: 'https://gtkdata.gtk.fi',
           changeOrigin: true,
+          // Don't let a slow GTK tile hang a browser image slot for 30 s+
+          proxyTimeout: 9000,
+          timeout: 9000,
           rewrite: (path) =>
             path.replace(
               /^\/api\/gtk-wms/,
