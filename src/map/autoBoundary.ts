@@ -2,6 +2,7 @@ import turfArea from '@turf/area';
 import turfDifference from '@turf/difference';
 import { featureCollection, polygon } from '@turf/helpers';
 import { computeRingAreaSqm, toClosedRing } from '../engine/geometry';
+import { simplifyRingMeters } from '../engine/shapes';
 import type { LngLat } from '../engine/types';
 import { IS_MML_ENABLED } from './providers';
 
@@ -138,7 +139,7 @@ async function pickFromMmlParcels(
             ? feat.properties.kiinteistotunnus
             : undefined;
       return {
-        points: capVertices(outerRing, 100),
+        points: capVertices(simplifyRingMeters(outerRing, 0.35), 80),
         label: formattedCode ? `${formattedCode} (MML)` : 'Kiinteistöpalsta (MML)',
         source: 'mml',
         isBuilding: false,

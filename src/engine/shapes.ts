@@ -140,20 +140,29 @@ function closestPointOnSegment(
   return { pt: [cx, cy], dist: Math.hypot(p[0] - cx, p[1] - cy) };
 }
 
+export interface SnapResult {
+  point: LngLat;
+  snapped: boolean;
+  kind: 'vertex' | 'edge' | null;
+}
+
 /**
- * Snaps a clicked coordinate to the nearest vertex or edge of visible parcel polygons
+ * Snaps a coordinate to the nearest vertex or edge of visible parcel polygons
  * within `maxDistM` meters (prioritizing corners slightly over edges).
  */
-export function snapPointToFeatureCollection(
+export function snapPointWithInfo(
   pt: LngLat,
   fc: FeatureCollection,
   maxDistM: number
-): LngLat {
-  if (!fc.features.length || maxDistM <= 0) return pt;
+): SnapResult {
+  if (!fc.features.length || maxDistM <= 0) {
+    return { point: pt, snapped: false, kind: null };
+  }
 
   const pLocal: [number, number] = [0, 0];
   let bestDist = maxDistM;
   let bestSnap: LngLat | null = null;
+  let bestKind: 'vertex' | 'edge' | null = null;
 
   const checkRing = (coords: number[][]) => {
     for (let i = 0; i < coords.length; i++) {
@@ -167,6 +176,7 @@ export function snapPointToFeatureCollection(
       if (vDist < bestDist) {
         bestDist = vDist * 0.85;
         bestSnap = aLngLat;
+        bestKind = 'vertex';
       }
 
       const next = coords[i + 1];
@@ -176,6 +186,7 @@ export function snapPointToFeatureCollection(
         if (seg.dist < bestDist) {
           bestDist = seg.dist;
           bestSnap = fromLocalMeters(seg.pt, pt);
+          bestKind = 'edge';
         }
       }
     }
@@ -195,5 +206,87 @@ export function snapPointToFeatureCollection(
     }
   }
 
-  return bestSnap ?? pt;
+  if (bestSnap) {
+    return { point: bestSnap, snapped: true, kind: bestKind };
+  }
+  return { point: pt, snapped: false, kind: null };
+}
+
+export function snapPointToFeatureCollection(
+  pt: LngLat,
+  fc: FeatureCollection,
+  maxDistM: number
+): LngLat {
+  return snapPointWithInfo(pt, fc, maxDistM).point;
+}
+
+function dpSimplifyOpen(
+  pts: Array<[number, number]>,
+  start: number,
+  end: number,
+  tolM: number,
+  keep: Uint8Array
+) {
+  if (end - start <= 1) return;
+  const a = pts[start]!;
+  const b = pts[end]!;
+  let maxDist = -1;
+  let maxIdx = -1;
+  for (let i = start + 1; i < end; i++) {
+    const d = closestPointOnSegment(pts[i]!, a, b).dist;
+    if (d > maxDist) {
+      maxDist = d;
+      maxIdx = i;
+    }
+  }
+  if (maxDist > tolM && maxIdx !== -1) {
+    keep[maxIdx] = 1;
+    dpSimplifyOpen(pts, start, maxIdx, tolM, keep);
+    dpSimplifyOpen(pts, maxIdx, end, tolM, keep);
+  }
+}
+
+/**
+ * Simplifies an open-list polygon ring (without duplicate closing vertex) using
+ * metric Douglas–Peucker so dense road-curve vertices from MML collapse into
+ * a few clean editable handles while preserving sharp parcel corners.
+ */
+export function simplifyRingMeters(ring: LngLat[], toleranceM = 0.35): LngLat[] {
+  if (ring.length <= 4 || toleranceM <= 0) return ring;
+  const origin = ring[0]!;
+  const local = ring.map((pt) => toLocalMeters(pt, origin));
+
+  // Split the closed ring at vertex 0 and its farthest vertex so true corners stay anchored
+  let farIdx = 1;
+  let farDist = -1;
+  for (let i = 1; i < local.length; i++) {
+    const d = Math.hypot(local[i]![0], local[i]![1]);
+    if (d > farDist) {
+      farDist = d;
+      farIdx = i;
+    }
+  }
+
+  const keep = new Uint8Array(local.length);
+  keep[0] = 1;
+  keep[farIdx] = 1;
+
+  // First half: 0 .. farIdx
+  dpSimplifyOpen(local, 0, farIdx, toleranceM, keep);
+
+  // Second half: farIdx .. n-1 .. 0 (closed wrap)
+  const wrapped = [...local.slice(farIdx), local[0]!];
+  const keepWrap = new Uint8Array(wrapped.length);
+  keepWrap[0] = 1;
+  keepWrap[wrapped.length - 1] = 1;
+  dpSimplifyOpen(wrapped, 0, wrapped.length - 1, toleranceM, keepWrap);
+  for (let i = 1; i < wrapped.length - 1; i++) {
+    if (keepWrap[i]) keep[farIdx + i] = 1;
+  }
+
+  const simplified: LngLat[] = [];
+  for (let i = 0; i < ring.length; i++) {
+    if (keep[i]) simplified.push(ring[i]!);
+  }
+  return simplified.length >= 3 ? simplified : ring;
 }

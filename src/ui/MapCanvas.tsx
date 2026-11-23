@@ -15,7 +15,7 @@ import {
 } from 'react';
 import { formatLength } from '../engine/format';
 import { computeLineLengthM, toClosedRing } from '../engine/geometry';
-import { snapPointToFeatureCollection } from '../engine/shapes';
+import { snapPointWithInfo } from '../engine/shapes';
 import type { DrawTool, LngLat, MeasurementGeometry } from '../engine/types';
 import type { Locale } from '../i18n/types';
 import { FINLAND_MASK_GEOJSON } from '../map/finlandMask';
@@ -861,12 +861,52 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
         map.getCanvas().style.cursor = 'grabbing';
       };
 
-      const moveDrag = (lngLat: maplibregl.LngLat) => {
+      // Reusable lightweight DOM snap indicator shown when cursor/vertex snaps to a parcel edge or corner
+      const snapEl = document.createElement('div');
+      snapEl.className = 'snap-ring';
+      snapEl.style.display = 'none';
+      const snapMarker = new maplibregl.Marker({
+        element: snapEl,
+        anchor: 'center',
+      })
+        .setLngLat(DEFAULT_CENTER)
+        .addTo(map);
+
+      const hideSnapRing = () => {
+        snapEl.style.display = 'none';
+      };
+
+      const snapToParcels = (
+        pt: LngLat,
+        bypassSnap: boolean
+      ): { point: LngLat; snapped: boolean } => {
+        if (bypassSnap || parcelsDataRef.current.features.length === 0) {
+          hideSnapRing();
+          return { point: pt, snapped: false };
+        }
+        const metersPerPx =
+          (156543.03392 * Math.cos((pt[1] * Math.PI) / 180)) /
+          Math.pow(2, map.getZoom());
+        const snapTolM = Math.min(4.5, Math.max(0.8, 14 * metersPerPx));
+        const res = snapPointWithInfo(pt, parcelsDataRef.current, snapTolM);
+        if (res.snapped) {
+          snapEl.dataset.kind = res.kind ?? 'edge';
+          snapEl.style.display = 'block';
+          snapMarker.setLngLat(res.point);
+        } else {
+          hideSnapRing();
+        }
+        return { point: res.point, snapped: res.snapped };
+      };
+
+      const moveDrag = (lngLat: maplibregl.LngLat, bypassSnap = false) => {
         if (!dragTargetRef.current) return;
-        onMoveVertexRef.current(dragTargetRef.current, [
-          lngLat.lng,
-          lngLat.lat,
-        ]);
+        const raw: LngLat = [lngLat.lng, lngLat.lat];
+        const isCutout =
+          dragTargetRef.current.collection === 'cutout' ||
+          dragTargetRef.current.collection === 'activeCutout';
+        const nextPt = isCutout ? raw : snapToParcels(raw, bypassSnap).point;
+        onMoveVertexRef.current(dragTargetRef.current, nextPt);
       };
 
       const defaultCursor = () =>
@@ -876,6 +916,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
         if (!dragTargetRef.current) return;
         dragTargetRef.current = null;
         justDraggedRef.current = true;
+        hideSnapRing();
         map.dragPan.enable();
         map.getCanvas().style.cursor = defaultCursor();
         window.setTimeout(() => {
@@ -891,17 +932,35 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
 
       map.on('mousemove', (e) => {
         if (dragTargetRef.current) {
-          moveDrag(e.lngLat);
+          moveDrag(e.lngLat, Boolean(e.originalEvent.altKey));
           return;
         }
         if (activeToolRef.current === 'pan') {
+          hideSnapRing();
           map.getCanvas().style.cursor = 'grab';
           return;
         }
         const hit = queryHandleAtPoint(map, e.point, 10);
-        map.getCanvas().style.cursor = hit ? 'grab' : defaultCursor();
+        if (hit) {
+          hideSnapRing();
+          map.getCanvas().style.cursor = 'grab';
+          return;
+        }
+        map.getCanvas().style.cursor = defaultCursor();
+        if (
+          activeToolRef.current === 'area' ||
+          activeToolRef.current === 'line'
+        ) {
+          snapToParcels(
+            [e.lngLat.lng, e.lngLat.lat],
+            Boolean(e.originalEvent.altKey)
+          );
+        } else {
+          hideSnapRing();
+        }
       });
 
+      map.on('mouseout', hideSnapRing);
       map.on('mouseup', endDrag);
       window.addEventListener('mouseup', endDrag);
 
@@ -914,7 +973,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
       map.on('touchmove', (e) => {
         if (!dragTargetRef.current) return;
         e.preventDefault();
-        moveDrag(e.lngLat);
+        moveDrag(e.lngLat, false);
       });
 
       map.on('touchend', endDrag);
@@ -937,21 +996,14 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
         if (hit) return;
 
         let clickPt: LngLat = [e.lngLat.lng, e.lngLat.lat];
-        // Snap manual drawing clicks to nearby visible MML parcel boundaries (~12px tolerance)
+        // Snap manual drawing clicks to nearby visible MML parcel boundaries (Alt bypasses)
         if (
-          activeToolRef.current !== 'pick' &&
-          parcelsDataRef.current.features.length > 0
+          activeToolRef.current === 'area' ||
+          activeToolRef.current === 'line'
         ) {
-          const metersPerPx =
-            (156543.03392 * Math.cos((e.lngLat.lat * Math.PI) / 180)) /
-            Math.pow(2, map.getZoom());
-          const snapTolM = Math.min(4, Math.max(0.8, 12 * metersPerPx));
-          clickPt = snapPointToFeatureCollection(
-            clickPt,
-            parcelsDataRef.current,
-            snapTolM
-          );
+          clickPt = snapToParcels(clickPt, Boolean(e.originalEvent.altKey)).point;
         }
+        hideSnapRing();
 
         onMapClickRef.current(clickPt, Boolean(e.originalEvent.shiftKey));
       });
@@ -959,6 +1011,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
       mapRef.current = map;
 
       return () => {
+        snapMarker.remove();
         window.removeEventListener('mouseup', endDrag);
         for (const m of edgeMarkersRef.current) m.remove();
         edgeMarkersRef.current = [];
@@ -1073,9 +1126,24 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           midLngLat: LngLat;
           x: number;
           y: number;
+          offsetX: number;
+          offsetY: number;
           pxLen: number;
           distM: number;
         };
+
+        // Screen-space centroid for closed areas so edge pills offset consistently outward
+        let cx = 0;
+        let cy = 0;
+        if (closed && pts.length >= 3) {
+          for (const p of pts) {
+            const sp = map.project(p);
+            cx += sp.x;
+            cy += sp.y;
+          }
+          cx /= pts.length;
+          cy /= pts.length;
+        }
 
         const candidates: Candidate[] = [];
         for (let i = 0; i < edgeCount; i++) {
@@ -1091,10 +1159,28 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           // Require enough screen space along the edge so labels stay legible
           if (pxLen < 42) continue;
 
+          const midX = (pa.x + pb.x) / 2;
+          const midY = (pa.y + pb.y) / 2;
+
+          // Offset label 16px perpendicular to the edge so the white midpoint handle stays uncovered
+          let nx = -(pb.y - pa.y) / pxLen;
+          let ny = (pb.x - pa.x) / pxLen;
+          if (closed && pts.length >= 3) {
+            const dot = (midX - cx) * nx + (midY - cy) * ny;
+            if (dot < 0) {
+              nx = -nx;
+              ny = -ny;
+            }
+          }
+          const offsetX = Math.round(nx * 16);
+          const offsetY = Math.round(ny * 16);
+
           candidates.push({
             midLngLat: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2],
-            x: (pa.x + pb.x) / 2,
-            y: (pa.y + pb.y) / 2,
+            x: midX + offsetX,
+            y: midY + offsetY,
+            offsetX,
+            offsetY,
             pxLen,
             distM,
           });
@@ -1122,6 +1208,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           const marker = new maplibregl.Marker({
             element: el,
             anchor: 'center',
+            offset: [c.offsetX, c.offsetY],
           })
             .setLngLat(c.midLngLat)
             .addTo(map);
