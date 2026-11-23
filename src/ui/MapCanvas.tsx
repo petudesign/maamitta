@@ -621,7 +621,16 @@ function queryHandleAtPoint(
 }
 
 const GTK_SOIL_WMS_TILE =
-  'https://gtkdata.gtk.fi/arcgis/services/Rajapinnat/GTK_Maapera_WMS/MapServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=maapera_20k_pohjamaalaji,maapera_200k_pohjamaalaji&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}';
+  'https://gtkdata.gtk.fi/arcgis/services/Rajapinnat/GTK_Maapera_WMS/MapServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&STYLES=&LAYERS=maapera_200k_maalajit,maapera_50k_pohjamaalajit,maapera_20k_pohjamaalajit&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}';
+
+const SOIL_LEGEND_ITEMS = [
+  { color: '#f28482', fi: 'Kallio', en: 'Bedrock' },
+  { color: '#f2d59b', fi: 'Moreeni', en: 'Till' },
+  { color: '#74b777', fi: 'Sora / hiekka', en: 'Gravel / sand' },
+  { color: '#e3c0f5', fi: 'Hieta / hiesu', en: 'Silt' },
+  { color: '#a8d5f7', fi: 'Savi', en: 'Clay' },
+  { color: '#b5b5b5', fi: 'Turve', en: 'Peat' },
+] as const;
 
 function attachSoilMapLayer(map: maplibregl.Map, visible: boolean) {
   if (!visible) {
@@ -756,8 +765,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
         dragRotate: false,
         pitchWithRotate: false,
         touchPitch: false,
+        trackResize: false,
         attributionControl: { compact: true },
-        canvasContextAttributes: { preserveDrawingBuffer: true },
       });
 
       map.touchZoomRotate.disableRotation();
@@ -932,7 +941,30 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
 
       mapRef.current = map;
 
+      // Coalesce container resizes so dragging the browser window doesn't stall
+      // UI layout with synchronous Retina WebGL reallocations & moveend cascades.
+      let resizeTimer: number | null = null;
+      let hasInitialSize = false;
+      const resizeObserver = new ResizeObserver(() => {
+        if (!hasInitialSize) {
+          hasInitialSize = true;
+          return;
+        }
+        if (resizeTimer !== null) {
+          window.clearTimeout(resizeTimer);
+        }
+        resizeTimer = window.setTimeout(() => {
+          resizeTimer = null;
+          map.resize();
+        }, 100);
+      });
+      resizeObserver.observe(containerRef.current);
+
       return () => {
+        resizeObserver.disconnect();
+        if (resizeTimer !== null) {
+          window.clearTimeout(resizeTimer);
+        }
         window.removeEventListener('mouseup', endDrag);
         for (const m of edgeMarkersRef.current) m.remove();
         edgeMarkersRef.current = [];
@@ -1148,6 +1180,25 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
         {showCrosshair && (
           <div className="crosshair" aria-hidden="true">
             <span className="crosshair-dot" />
+          </div>
+        )}
+        {showSoilMap && (
+          <div
+            className="soil-legend"
+            aria-label={
+              locale === 'en' ? 'GTK soil map legend' : 'GTK maaperäkartan selite'
+            }
+          >
+            {SOIL_LEGEND_ITEMS.map((item) => (
+              <span key={item.en} className="soil-legend-item">
+                <span
+                  className="soil-swatch"
+                  style={{ background: item.color }}
+                  aria-hidden="true"
+                />
+                <span>{locale === 'en' ? item.en : item.fi}</span>
+              </span>
+            ))}
           </div>
         )}
         {imageryMeta && (
