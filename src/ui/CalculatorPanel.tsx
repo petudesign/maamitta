@@ -1374,50 +1374,78 @@ export function CalculatorPanel({
       </div>
 
       <div className="panel-footer">
-        <button
-          type="button"
-          className="btn btn-subtle"
-          style={{ padding: '0 13px', flexShrink: 0 }}
-          disabled={!hasExportableContent}
-          onClick={handleCopySummary}
-          aria-label={
-            locale === 'en'
-              ? 'Copy text summary'
-              : 'Kopioi tekstimuotoinen yhteenveto'
-          }
+        <span
+          style={{ display: 'inline-flex', flexShrink: 0 }}
           data-tooltip={
-            copiedSummary
+            !hasExportableContent
               ? locale === 'en'
-                ? 'Copied!'
-                : 'Kopioitu!'
-              : locale === 'en'
-                ? 'Copy summary (WhatsApp / SMS)'
-                : 'Kopioi yhteenveto (WhatsApp / SMS)'
+                ? 'Pick or draw an area on the map first'
+                : 'Valitse tai piirrä ensin alue kartalta'
+              : undefined
           }
           data-tooltip-pos="top"
           data-tooltip-align="left"
         >
-          {copiedSummary ? <Check size={16} /> : <Copy size={16} />}
-          <span>
-            {copiedSummary
+          <button
+            type="button"
+            className="btn btn-subtle"
+            style={{ padding: '0 13px' }}
+            disabled={!hasExportableContent}
+            onClick={handleCopySummary}
+            aria-label={
+              locale === 'en'
+                ? 'Copy text summary'
+                : 'Kopioi tekstimuotoinen yhteenveto'
+            }
+            data-tooltip={
+              !hasExportableContent
+                ? undefined
+                : copiedSummary
+                  ? locale === 'en'
+                    ? 'Copied!'
+                    : 'Kopioitu!'
+                  : locale === 'en'
+                    ? 'Copy summary (WhatsApp / SMS)'
+                    : 'Kopioi yhteenveto (WhatsApp / SMS)'
+            }
+            data-tooltip-pos="top"
+            data-tooltip-align="left"
+          >
+            {copiedSummary ? <Check size={16} /> : <Copy size={16} />}
+            <span>
+              {copiedSummary
+                ? locale === 'en'
+                  ? 'Copied'
+                  : 'Kopioitu'
+                : locale === 'en'
+                  ? 'Copy'
+                  : 'Kopioi'}
+            </span>
+          </button>
+        </span>
+        <span
+          style={{ display: 'flex', flex: 1 }}
+          data-tooltip={
+            !hasExportableContent
               ? locale === 'en'
-                ? 'Copied'
-                : 'Kopioitu'
-              : locale === 'en'
-                ? 'Copy'
-                : 'Kopioi'}
-          </span>
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          style={{ flex: 1 }}
-          disabled={!hasExportableContent || isExportingPdf}
-          onClick={onExportPdf}
+                ? 'Pick or draw an area on the map first'
+                : 'Valitse tai piirrä ensin alue kartalta'
+              : undefined
+          }
+          data-tooltip-pos="top"
+          data-tooltip-align="right"
         >
-          <FileDown size={17} />
-          {isExportingPdf ? t.exportingPdf : t.exportPdf}
-        </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ flex: 1 }}
+            disabled={!hasExportableContent || isExportingPdf}
+            onClick={onExportPdf}
+          >
+            <FileDown size={17} />
+            {isExportingPdf ? t.exportingPdf : t.exportPdf}
+          </button>
+        </span>
       </div>
     </aside>
   );
