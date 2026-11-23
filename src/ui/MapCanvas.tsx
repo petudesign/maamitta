@@ -50,6 +50,7 @@ interface MapCanvasProps {
   activeTool: DrawTool;
   showCrosshair: boolean;
   onMapClick: (point: LngLat, shiftKey: boolean) => void;
+  onDragStart?: () => void;
   onMoveVertex: (target: VertexRef, nextPoint: LngLat) => void;
   onInsertVertex: (target: VertexRef, point: LngLat) => void;
   onDeleteVertex: (target: VertexRef) => void;
@@ -671,6 +672,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
       activeTool,
       showCrosshair,
       onMapClick,
+      onDragStart,
       onMoveVertex,
       onInsertVertex,
       onDeleteVertex,
@@ -680,6 +682,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
     const onMapClickRef = useRef(onMapClick);
+    const onDragStartRef = useRef(onDragStart);
     const onMoveVertexRef = useRef(onMoveVertex);
     const onInsertVertexRef = useRef(onInsertVertex);
     const onDeleteVertexRef = useRef(onDeleteVertex);
@@ -697,6 +700,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
     const [viewportRev, setViewportRev] = useState(0);
 
     onMapClickRef.current = onMapClick;
+    onDragStartRef.current = onDragStart;
     onMoveVertexRef.current = onMoveVertex;
     onInsertVertexRef.current = onInsertVertex;
     onDeleteVertexRef.current = onDeleteVertex;
@@ -816,10 +820,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
         hitRadiusPx: number,
         preventDefault: () => void
       ) => {
+        // Never grab polygon handles in Hand/Pan free-roam mode
+        if (activeToolRef.current === 'pan') return;
         const hit = queryHandleAtPoint(map, point, hitRadiusPx);
         if (!hit) return;
         preventDefault();
 
+        onDragStartRef.current?.();
         if (hit.isMidpoint) {
           onInsertVertexRef.current(hit.ref, [lngLat.lng, lngLat.lat]);
         }
@@ -861,6 +868,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           moveDrag(e.lngLat);
           return;
         }
+        if (activeToolRef.current === 'pan') {
+          map.getCanvas().style.cursor = 'grab';
+          return;
+        }
         const hit = queryHandleAtPoint(map, e.point, 10);
         map.getCanvas().style.cursor = hit ? 'grab' : defaultCursor();
       });
@@ -886,6 +897,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
       // Right-click on a vertex deletes it (and never tilts the flat 2D map)
       map.on('contextmenu', (e) => {
         e.preventDefault();
+        if (activeToolRef.current === 'pan') return;
         const hit = queryHandleAtPoint(map, e.point, 12);
         if (hit && !hit.isMidpoint) {
           onDeleteVertexRef.current(hit.ref);

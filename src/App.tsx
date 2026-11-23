@@ -155,6 +155,7 @@ export function App() {
     quoteItems: QuoteZoneItem[];
   } | null>(null);
   const clearUndoTimerRef = useRef<number | null>(null);
+  const undoStackRef = useRef<MeasurementGeometry[]>([]);
   const statusTimerRef = useRef<number | null>(null);
   const pickAbortRef = useRef<AbortController | null>(null);
   const slopeAbortRef = useRef<AbortController | null>(null);
@@ -421,6 +422,17 @@ export function App() {
     [activeTool, commitActiveCutout]
   );
 
+  const pushUndoSnapshot = useCallback((snapshot: MeasurementGeometry) => {
+    const stack = undoStackRef.current;
+    stack.push({
+      areaPoints: [...snapshot.areaPoints],
+      cutouts: snapshot.cutouts.map((c) => [...c]),
+      activeCutout: [...snapshot.activeCutout],
+      linePoints: [...snapshot.linePoints],
+    });
+    if (stack.length > 30) stack.shift();
+  }, []);
+
   const addPoint = useCallback(
     async (pt: LngLat, shiftKey = false) => {
       if (activeTool === 'pan') return;
@@ -544,6 +556,7 @@ export function App() {
         return;
       }
 
+      pushUndoSnapshot(geometry);
       const startingFreshFromAutoParcel =
         activeTool === 'area' && geometrySource !== 'manual';
 
@@ -584,7 +597,17 @@ export function App() {
     }
   }, [addPoint]);
 
+  const handleDragStart = useCallback(() => {
+    pushUndoSnapshot(geometry);
+  }, [geometry, pushUndoSnapshot]);
+
   const handleUndo = useCallback(() => {
+    const previous = undoStackRef.current.pop();
+    if (previous) {
+      setGeometry(previous);
+      return;
+    }
+
     setGeometry((prev) => {
       // 1. Prioritize the active drawing tool if it has points
       if (activeTool === 'area' && prev.areaPoints.length > 0) {
@@ -869,8 +892,10 @@ export function App() {
     });
   }, []);
 
-  const handleDeleteVertex = useCallback((target: VertexRef) => {
-    setGeometry((prev) => {
+  const handleDeleteVertex = useCallback(
+    (target: VertexRef) => {
+      pushUndoSnapshot(geometry);
+      setGeometry((prev) => {
       if (target.collection === 'area') {
         return {
           ...prev,
@@ -900,7 +925,7 @@ export function App() {
         linePoints: prev.linePoints.filter((_, i) => i !== target.vertexIndex),
       };
     });
-  }, []);
+  }, [geometry, pushUndoSnapshot]);
 
   const handleSelectPreset = useCallback((nextId: string) => {
     const nextPreset = getPresetById(nextId);
@@ -1244,6 +1269,7 @@ export function App() {
           activeTool={activeTool}
           showCrosshair={showCrosshair}
           onMapClick={addPoint}
+          onDragStart={handleDragStart}
           onMoveVertex={handleMoveVertex}
           onInsertVertex={handleInsertVertex}
           onDeleteVertex={handleDeleteVertex}
