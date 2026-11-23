@@ -344,6 +344,10 @@ export function CalculatorPanel({
             {t.heading}
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-secondary)' }}>
+            {activeTool === 'pan' &&
+              (locale === 'en'
+                ? 'Pan & zoom freely · choose Pick or Area to measure'
+                : 'Tutki karttaa vapaasti · valitse Poimi tai Alue mitataksesi')}
             {activeTool === 'pick' &&
               (locale === 'en'
                 ? 'Click to pick · Shift+Click to add multiple parcels'

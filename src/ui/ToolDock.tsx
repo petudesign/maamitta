@@ -1,5 +1,6 @@
 import {
   Calculator,
+  Hand,
   Pentagon,
   Plus,
   Ruler,
@@ -155,6 +156,18 @@ export function ToolDock({
         className="tool-dock"
         aria-label={locale === 'en' ? 'Measurement tools' : 'Mittaustyökalut'}
       >
+        <button
+          type="button"
+          className="tool-chip"
+          data-active={activeTool === 'pan'}
+          aria-pressed={activeTool === 'pan'}
+          aria-label={locale === 'en' ? 'Pan map (H)' : 'Liikuta karttaa (H)'}
+          onClick={() => onSelectTool('pan')}
+          data-tooltip={locale === 'en' ? 'Pan map (H)' : 'Liikuta karttaa (H)'}
+        >
+          <Hand size={16} />
+        </button>
+
         <button
           type="button"
           className="tool-chip"

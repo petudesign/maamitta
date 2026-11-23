@@ -133,7 +133,7 @@ export function App() {
   const [baseLayer, setBaseLayer] = useState<BaseLayerId>('satellite');
   const [showParcels, setShowParcels] = useState<boolean>(IS_MML_ENABLED);
   const [showSoilMap, setShowSoilMap] = useState<boolean>(false);
-  const [activeTool, setActiveTool] = useState<DrawTool>('pick');
+  const [activeTool, setActiveTool] = useState<DrawTool>('pan');
   const [showCrosshair, setShowCrosshair] = useState<boolean>(() =>
     typeof window !== 'undefined'
       ? window.matchMedia('(pointer: coarse)').matches
@@ -423,6 +423,7 @@ export function App() {
 
   const addPoint = useCallback(
     async (pt: LngLat, shiftKey = false) => {
+      if (activeTool === 'pan') return;
       if (activeTool === 'pick') {
         if (pt[0] < 19.0 || pt[0] > 31.6 || pt[1] < 59.4 || pt[1] > 70.1) {
           showStatus(
@@ -1168,7 +1169,9 @@ export function App() {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       const key = e.key.toLowerCase();
-      if (key === 'p') {
+      if (key === 'h') {
+        handleSelectTool('pan');
+      } else if (key === 'p') {
         handleSelectTool('pick');
       } else if (key === 'a') {
         handleSelectTool('area');

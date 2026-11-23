@@ -1,7 +1,7 @@
 /** Longitude, Latitude pair in WGS84 (EPSG:4326) */
 export type LngLat = [number, number];
 
-export type DrawTool = 'area' | 'cutout' | 'line' | 'pick';
+export type DrawTool = 'pan' | 'pick' | 'area' | 'cutout' | 'line';
 
 export type GeometrySource = 'mml' | 'osm' | 'manual';
 

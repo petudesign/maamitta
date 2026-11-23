@@ -836,12 +836,15 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
         ]);
       };
 
+      const defaultCursor = () =>
+        activeToolRef.current === 'pan' ? 'grab' : 'crosshair';
+
       const endDrag = () => {
         if (!dragTargetRef.current) return;
         dragTargetRef.current = null;
         justDraggedRef.current = true;
         map.dragPan.enable();
-        map.getCanvas().style.cursor = 'crosshair';
+        map.getCanvas().style.cursor = defaultCursor();
         window.setTimeout(() => {
           justDraggedRef.current = false;
         }, 60);
@@ -859,7 +862,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           return;
         }
         const hit = queryHandleAtPoint(map, e.point, 10);
-        map.getCanvas().style.cursor = hit ? 'grab' : 'crosshair';
+        map.getCanvas().style.cursor = hit ? 'grab' : defaultCursor();
       });
 
       map.on('mouseup', endDrag);
@@ -1120,7 +1123,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
     useEffect(() => {
       const canvas = mapRef.current?.getCanvas();
       if (!canvas) return;
-      canvas.style.cursor = 'crosshair';
+      canvas.style.cursor = activeTool === 'pan' ? 'grab' : 'crosshair';
     }, [activeTool]);
 
     return (
