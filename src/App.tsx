@@ -38,6 +38,7 @@ import {
   projectRepository,
   type SavedProject,
 } from './store/projectStore';
+import { BetaConsentBanner } from './ui/BetaConsentBanner';
 import { CalculatorPanel } from './ui/CalculatorPanel';
 import {
   MapCanvas,
@@ -1396,6 +1397,8 @@ export function App() {
         isExportingPdf={isExportingPdf}
         onExportPdf={handleExportPdf}
       />
+
+      <BetaConsentBanner locale={locale} />
     </div>
   );
 }

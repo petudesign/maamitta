@@ -39,6 +39,11 @@ export interface AnalyticsEventMap {
     presetId: string;
     locale: Locale;
   };
+  summary_copied: {
+    zoneCount: number;
+    presetId: string;
+    locale: Locale;
+  };
   locale_switched: {
     locale: Locale;
   };

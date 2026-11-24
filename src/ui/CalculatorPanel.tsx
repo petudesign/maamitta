@@ -37,6 +37,7 @@ import type {
   QuoteZoneItem,
 } from '../engine/types';
 import { getMessages, type Locale } from '../i18n';
+import { trackEvent } from '../analytics/track';
 import { getPresets } from '../presets/finland';
 import type { SavedProject } from '../store/projectStore';
 import { QuoteItemsList } from './QuoteItemsList';
@@ -270,6 +271,11 @@ export function CalculatorPanel({
     try {
       await navigator.clipboard.writeText(lines.join('\n'));
       setCopiedSummary(true);
+      trackEvent('summary_copied', {
+        zoneCount: quoteItems.length + (hasRelevantMeasure ? 1 : 0),
+        presetId: preset.id,
+        locale,
+      });
       if (summaryCopyTimerRef.current !== null) {
         window.clearTimeout(summaryCopyTimerRef.current);
       }
