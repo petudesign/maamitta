@@ -196,6 +196,8 @@ export function CalculatorPanel({
   const [customUnit, setCustomUnit] = useState('h');
   const [customPrice, setCustomPrice] = useState(priceBook.hourlyRateEur);
   const [priceBookOpen, setPriceBookOpen] = useState(false);
+  const [notesSectionOpen, setNotesSectionOpen] = useState(false);
+  const [quoteInfoOpen, setQuoteInfoOpen] = useState(false);
   const [savedPriceFlash, setSavedPriceFlash] = useState(false);
   const [isCompressingPhotos, setIsCompressingPhotos] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -206,8 +208,57 @@ export function CalculatorPanel({
   );
   const projectSwitcherRef = useRef<HTMLDivElement | null>(null);
   const helpRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const sheetDragRef = useRef<{
+    pointerId: number;
+    startY: number;
+    startTime: number;
+    lastDy: number;
+  } | null>(null);
   const copyTimerRef = useRef<number | null>(null);
   const summaryCopyTimerRef = useRef<number | null>(null);
+
+  const handleSheetPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isOpenMobile || sheetDragRef.current) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    sheetDragRef.current = {
+      pointerId: e.pointerId,
+      startY: e.clientY,
+      startTime: performance.now(),
+      lastDy: 0,
+    };
+    if (panelRef.current) {
+      panelRef.current.style.transition = 'none';
+    }
+  };
+
+  const handleSheetPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = sheetDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId || !panelRef.current) return;
+    const rawDy = e.clientY - drag.startY;
+    drag.lastDy = rawDy;
+    // Apply smooth friction when dragging upward past top boundary; 1:1 downward
+    const visualDy =
+      rawDy < 0 ? -Math.pow(Math.abs(rawDy), 0.72) * 0.45 : rawDy;
+    panelRef.current.style.transform = `translateY(${visualDy}px)`;
+  };
+
+  const handleSheetPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = sheetDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    sheetDragRef.current = null;
+    const elapsed = Math.max(1, performance.now() - drag.startTime);
+    const velocity = drag.lastDy / elapsed;
+
+    if (panelRef.current) {
+      panelRef.current.style.transition = '';
+      panelRef.current.style.transform = '';
+    }
+
+    if (drag.lastDy >= 90 || velocity > 0.11) {
+      onCloseMobile();
+    }
+  };
 
   useEffect(() => {
     setCustomPrice(priceBook.hourlyRateEur);
@@ -416,11 +467,22 @@ export function CalculatorPanel({
 
   return (
     <aside
+      ref={panelRef}
       id="calculator-panel"
       className="panel"
       data-open={isOpenMobile}
       aria-label={t.heading}
     >
+      <div
+        className="sheet-drag-zone"
+        onPointerDown={handleSheetPointerDown}
+        onPointerMove={handleSheetPointerMove}
+        onPointerUp={handleSheetPointerEnd}
+        onPointerCancel={handleSheetPointerEnd}
+        aria-hidden="true"
+      >
+        <span className="sheet-drag-pill" />
+      </div>
       <div className="panel-header">
         <div>
           <div
@@ -1036,10 +1098,10 @@ export function CalculatorPanel({
                 onClick={() => onSelectPreset(item.id)}
               >
                 <span className="preset-name">{item.name}</span>
-                <span className="preset-desc">{item.shortDesc}</span>
               </button>
             ))}
           </div>
+          <div className="preset-active-desc">{preset.shortDesc}</div>
         </section>
 
         {/* Parameters */}
@@ -1222,28 +1284,53 @@ export function CalculatorPanel({
         </section>
 
         {/* Estimate results */}
-        <section className="card">
+        <section className="card card-estimate">
           <div className="card-title">
             <span>{t.estimateTitle}</span>
             <span>{preset.basis === 'area' ? t.basisArea : t.basisLine}</span>
           </div>
 
           {!hasRelevantMeasure ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div
-                style={{
-                  fontSize: 13.5,
-                  color: 'var(--ink-secondary)',
-                  lineHeight: 1.45,
-                }}
-              >
-                {preset.basis === 'area' ? t.emptyAreaHint : t.emptyLineHint}
-              </div>
+            <div className="empty-guide">
+              {preset.basis === 'area' ? (
+                <ol className="empty-steps">
+                  <li>
+                    <strong>{locale === 'en' ? 'Search an address' : 'Hae osoite'}</strong>{' '}
+                    {locale === 'en'
+                      ? 'at the top, or pan the map to the site.'
+                      : 'ylhäältä tai siirry kartalla kohteeseen.'}
+                  </li>
+                  <li>
+                    {locale === 'en' ? (
+                      <>
+                        Choose <strong>Pick</strong> and tap a parcel (borders &amp; buildings auto-fill) — or draw an <strong>Area</strong>.
+                      </>
+                    ) : (
+                      <>
+                        Valitse <strong>Poimi</strong> ja napauta tonttia (rajat &amp; talot automaattisesti) — tai piirrä <strong>Alue</strong>.
+                      </>
+                    )}
+                  </li>
+                  <li>
+                    {locale === 'en' ? (
+                      <>
+                        Pick a <strong>job type</strong> and export a ready <strong>PDF quote</strong>.
+                      </>
+                    ) : (
+                      <>
+                        Valitse <strong>työlaji</strong> ja lataa valmis <strong>PDF-arvio</strong>.
+                      </>
+                    )}
+                  </li>
+                </ol>
+              ) : (
+                <div className="empty-line-hint">{t.emptyLineHint}</div>
+              )}
               {preset.basis === 'area' && (
                 <button
                   type="button"
                   className="btn btn-subtle"
-                  style={{ minHeight: 38, fontSize: 13, alignSelf: 'flex-start', padding: '0 12px' }}
+                  style={{ minHeight: 40, fontSize: 13, alignSelf: 'flex-start', padding: '0 13px' }}
                   onClick={onLoadDemoYard}
                 >
                   <Sparkles size={14} />
@@ -1466,20 +1553,39 @@ export function CalculatorPanel({
           </section>
         )}
 
-        {/* Site notes & photos */}
-        <section className="card">
-          <div className="card-title">
-            <span>
+        {/* Site notes & photos (collapsed by default to keep panel concise) */}
+        <section
+          className={`card card-collapsible${notesSectionOpen ? ' is-open' : ''}`}
+        >
+          <button
+            type="button"
+            className="section-collapse-btn"
+            aria-expanded={notesSectionOpen}
+            onClick={() => setNotesSectionOpen((o) => !o)}
+          >
+            <span className="card-title">
               {locale === 'en'
                 ? 'Site notes & photos'
                 : 'Muistiinpanot & kuvat'}
             </span>
-            <span className="tabular-nums">
-              {sitePhotos.length}/{MAX_SITE_PHOTOS}
+            <span className="section-collapse-meta tabular-nums">
+              <span>
+                {siteNote.trim()
+                  ? locale === 'en'
+                    ? `Note · ${sitePhotos.length}/${MAX_SITE_PHOTOS}`
+                    : `Huomio · ${sitePhotos.length}/${MAX_SITE_PHOTOS}`
+                  : `${sitePhotos.length}/${MAX_SITE_PHOTOS}`}
+              </span>
+              {notesSectionOpen ? (
+                <ChevronUp size={15} color="var(--ink-muted)" />
+              ) : (
+                <ChevronDown size={15} color="var(--ink-muted)" />
+              )}
             </span>
-          </div>
+          </button>
 
-          <div className="field-grid">
+          {notesSectionOpen && (
+            <div className="field-grid">
             <div className="field field-full">
               <label htmlFor="site-note-input">
                 {locale === 'en'
@@ -1601,19 +1707,42 @@ export function CalculatorPanel({
               )}
             </div>
           </div>
+          )}
         </section>
 
-        {/* Quote metadata */}
-        <section className="card">
-          <div className="card-title">
-            <span>{t.quoteInfoTitle}</span>
-          </div>
-          <div className="field-grid">
+        {/* Quote metadata (collapsed by default to keep panel concise) */}
+        <section
+          className={`card card-collapsible${quoteInfoOpen ? ' is-open' : ''}`}
+        >
+          <button
+            type="button"
+            className="section-collapse-btn"
+            aria-expanded={quoteInfoOpen}
+            onClick={() => setQuoteInfoOpen((o) => !o)}
+          >
+            <span className="card-title">{t.quoteInfoTitle}</span>
+            <span className="section-collapse-meta">
+              <span className="section-collapse-summary">
+                {company.name.trim() ||
+                  company.address.trim() ||
+                  (locale === 'en' ? 'Optional' : 'Valinnainen')}
+              </span>
+              {quoteInfoOpen ? (
+                <ChevronUp size={15} color="var(--ink-muted)" />
+              ) : (
+                <ChevronDown size={15} color="var(--ink-muted)" />
+              )}
+            </span>
+          </button>
+
+          {quoteInfoOpen && (
+            <div className="field-grid">
             <div className="field field-full">
               <label htmlFor="project-title">{t.projectTitleLabel}</label>
               <input
                 id="project-title"
                 type="text"
+                enterKeyHint="done"
                 placeholder={t.projectTitlePlaceholder}
                 value={company.projectTitle}
                 onChange={(e) =>
@@ -1626,6 +1755,7 @@ export function CalculatorPanel({
               <input
                 id="project-address"
                 type="text"
+                enterKeyHint="done"
                 placeholder={t.addressPlaceholder}
                 value={company.address}
                 onChange={(e) => onChangeCompany({ address: e.target.value })}
@@ -1636,6 +1766,7 @@ export function CalculatorPanel({
               <input
                 id="company-name"
                 type="text"
+                enterKeyHint="done"
                 placeholder={t.companyPlaceholder}
                 value={company.name}
                 onChange={(e) => onChangeCompany({ name: e.target.value })}
@@ -1646,6 +1777,7 @@ export function CalculatorPanel({
               <input
                 id="company-contact"
                 type="text"
+                enterKeyHint="done"
                 placeholder={t.contactPlaceholder}
                 value={company.contact}
                 onChange={(e) => onChangeCompany({ contact: e.target.value })}
@@ -1726,6 +1858,7 @@ export function CalculatorPanel({
               </div>
             </div>
           </div>
+          )}
         </section>
       </div>
 

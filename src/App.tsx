@@ -770,41 +770,48 @@ export function App() {
   }, [locale, showStatus]);
 
   const handleLoadDemoYard = useCallback(() => {
+    // Real public parcel in Oulunkylä, Helsinki (MML 91-422-6-59) with its MML building footprint
     const demoGeometry: MeasurementGeometry = {
       areaPoints: [
-        [24.75642, 60.18438],
-        [24.75704, 60.18436],
-        [24.75701, 60.18406],
-        [24.75639, 60.18408],
+        [24.967338, 60.229502],
+        [24.967771, 60.229287],
+        [24.966879, 60.228833],
+        [24.966674, 60.228932],
+        [24.966666, 60.228979],
+        [24.966972, 60.229132],
+        [24.966859, 60.229192],
+        [24.966995, 60.229262],
+        [24.966933, 60.229292],
       ],
       cutouts: [
         [
-          [24.75658, 60.18429],
-          [24.75684, 60.18428],
-          [24.75683, 60.18416],
-          [24.75657, 60.18417],
+          [24.966797, 60.229005],
+          [24.967161, 60.229196],
+          [24.96735, 60.229106],
+          [24.966985, 60.228916],
         ],
       ],
       activeCutout: [],
       linePoints: [],
     };
     const defaultPreset = getPresetById('murske', locale);
+    const resolved = resolvePresetDefaults(defaultPreset, priceBook);
     setPresetId(defaultPreset.id);
-    setParams(getDefaultParamValues(defaultPreset));
-    setUnitPriceEur(defaultPreset.defaultUnitPriceEur);
+    setParams(resolved.params);
+    setUnitPriceEur(resolved.unitPriceEur);
     setGeometry(demoGeometry);
     setGeometrySource('mml');
-    setParcelCode('049-012-0045-0001');
+    setParcelCode('91-422-6-59');
     setSlopePct(0);
     setActiveTool('pick');
     mapRef.current?.fitGeometry(demoGeometry, true);
     showStatus(
       locale === 'en'
-        ? 'Loaded demo yard with house subtracted — drag any corner to test!'
-        : 'Esimerkkipiha ladattu (talo vähennetty) — kokeile vetää kulmapisteitä!',
+        ? 'Loaded real Helsinki parcel (building subtracted) — drag any corner to test!'
+        : 'Esimerkkikohde ladattu Oulunkylästä (rakennus vähennetty) — kokeile vetää kulmia!',
       4200
     );
-  }, [locale, showStatus]);
+  }, [locale, priceBook, showStatus]);
 
   const handleClearCutouts = useCallback(() => {
     setGeometry((prev) => ({

@@ -129,6 +129,7 @@ export function TopBar({
           />
           <input
             type="search"
+            autoCorrect="off"
             className="search-input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
