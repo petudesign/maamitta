@@ -155,7 +155,12 @@ export function App() {
   const [showParcels, setShowParcels] = useState<boolean>(IS_MML_ENABLED);
   const [showSoilMap, setShowSoilMap] = useState<boolean>(false);
   const [activeTool, setActiveTool] = useState<DrawTool>('pan');
-  const [showCrosshair, setShowCrosshair] = useState<boolean>(false);
+  const [showCrosshair, setShowCrosshair] = useState<boolean>(() =>
+    typeof window !== 'undefined'
+      ? window.matchMedia('(pointer: coarse)').matches
+      : false
+  );
+  const crosshairHintShownRef = useRef(false);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [mapLayersOpen, setMapLayersOpen] = useState(true);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -477,8 +482,21 @@ export function App() {
         commitActiveCutout();
       }
       setActiveTool(nextTool);
+      if (
+        showCrosshair &&
+        !crosshairHintShownRef.current &&
+        (nextTool === 'area' || nextTool === 'cutout' || nextTool === 'line')
+      ) {
+        crosshairHintShownRef.current = true;
+        showStatus(
+          locale === 'en'
+            ? 'Aim the crosshair and tap + Point — or tap directly on the map'
+            : 'Kohdista tähtäin kulmaan ja paina + Piste — tai napauta suoraan karttaa',
+          4200
+        );
+      }
     },
-    [activeTool, commitActiveCutout]
+    [activeTool, commitActiveCutout, locale, showCrosshair, showStatus]
   );
 
   const pushUndoSnapshot = useCallback((snapshot: MeasurementGeometry) => {
