@@ -3,6 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { bucketAreaSqm, trackEvent } from './analytics/track';
 import { calculateEstimate } from './engine/calculator';
 import { summarizeGeometry } from './engine/geometry';
+import {
+  applyMargin,
+  DEFAULT_PRICE_BOOK,
+  resolvePresetDefaults,
+  savePresetToPriceBook,
+} from './engine/priceBook';
 import { buildQuoteZoneItem } from './engine/quote';
 import {
   bufferLineToCorridor,
@@ -15,7 +21,9 @@ import type {
   GeometrySource,
   LngLat,
   MeasurementGeometry,
+  PriceBook,
   QuoteZoneItem,
+  SitePhoto,
 } from './engine/types';
 import { getMessages, loadInitialLocale, type Locale, saveLocale } from './i18n';
 import {
@@ -38,6 +46,7 @@ import {
   projectRepository,
   type SavedProject,
 } from './store/projectStore';
+import { priceBookRepository } from './store/priceBookStore';
 import { BetaConsentBanner } from './ui/BetaConsentBanner';
 import { CalculatorPanel } from './ui/CalculatorPanel';
 import {
@@ -66,9 +75,11 @@ const DEFAULT_COMPANY: CompanyInfo = {
 
 function makeFreshProject(
   companySeed?: Partial<CompanyInfo>,
-  locale: Locale = 'fi'
+  locale: Locale = 'fi',
+  priceBook: PriceBook = DEFAULT_PRICE_BOOK
 ): SavedProject {
   const defaultPreset = getPresetById('murske', locale);
+  const resolved = resolvePresetDefaults(defaultPreset, priceBook);
   return {
     id: createProjectId(),
     geometry: EMPTY_GEOMETRY,
@@ -76,8 +87,8 @@ function makeFreshProject(
     parcelCode: null,
     slopePct: 0,
     presetId: defaultPreset.id,
-    params: getDefaultParamValues(defaultPreset),
-    unitPriceEur: defaultPreset.defaultUnitPriceEur,
+    params: resolved.params,
+    unitPriceEur: resolved.unitPriceEur,
     vatRatePct: DEFAULT_VAT_RATE_PCT,
     company: {
       ...DEFAULT_COMPANY,
@@ -90,15 +101,24 @@ function makeFreshProject(
       logoDataUrl: companySeed?.logoDataUrl,
     },
     quoteItems: [],
+    siteNote: '',
+    includeSiteNoteInPdf: true,
+    sitePhotos: [],
+    includeSitePhotosInPdf: true,
     updatedAt: new Date().toISOString(),
   };
 }
 
 export function App() {
+  const [priceBook, setPriceBook] = useState<PriceBook>(() =>
+    priceBookRepository.load()
+  );
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
+
   const initialLib = useMemo(() => {
     const loaded = projectRepository.loadLibrary();
     if (loaded) return loaded;
-    const first = makeFreshProject();
+    const first = makeFreshProject(undefined, 'fi', priceBookRepository.load());
     return { activeProjectId: first.id, projects: [first] };
   }, []);
 
@@ -206,6 +226,16 @@ export function App() {
   );
   const [vatRatePct, setVatRatePct] = useState<number>(initial.vatRatePct);
   const [company, setCompany] = useState<CompanyInfo>(initial.company);
+  const [siteNote, setSiteNote] = useState<string>(initial.siteNote ?? '');
+  const [includeSiteNoteInPdf, setIncludeSiteNoteInPdf] = useState<boolean>(
+    initial.includeSiteNoteInPdf ?? true
+  );
+  const [sitePhotos, setSitePhotos] = useState<SitePhoto[]>(
+    initial.sitePhotos ?? []
+  );
+  const [includeSitePhotosInPdf, setIncludeSitePhotosInPdf] = useState<boolean>(
+    initial.includeSitePhotosInPdf ?? true
+  );
 
   const mapRef = useRef<MapCanvasHandle | null>(null);
   const latestLibraryRef = useRef({ activeProjectId, projects });
@@ -228,6 +258,10 @@ export function App() {
               vatRatePct,
               company,
               quoteItems,
+              siteNote,
+              includeSiteNoteInPdf,
+              sitePhotos,
+              includeSitePhotosInPdf,
               updatedAt,
             }
           : p
@@ -245,16 +279,29 @@ export function App() {
     vatRatePct,
     company,
     quoteItems,
+    siteNote,
+    includeSiteNoteInPdf,
+    sitePhotos,
+    includeSitePhotosInPdf,
   ]);
 
   // Debounced localStorage persistence (avoids 60fps serialization during vertex drag)
   useEffect(() => {
     latestLibraryRef.current = { activeProjectId, projects };
     const timer = window.setTimeout(() => {
-      projectRepository.saveLibrary(latestLibraryRef.current);
+      const ok = projectRepository.saveLibrary(latestLibraryRef.current);
+      if (!ok) {
+        setStorageWarning(
+          locale === 'en'
+            ? 'Browser storage is full — remove a site photo or old project to save changes.'
+            : 'Selaimen tallennustila on täynnä — poista kuva tai vanha kohde tallentaaksesi muutokset.'
+        );
+      } else {
+        setStorageWarning(null);
+      }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [activeProjectId, projects]);
+  }, [activeProjectId, projects, locale]);
 
   // Flush pending project edits on tab close / reload
   useEffect(() => {
@@ -285,6 +332,11 @@ export function App() {
     setVatRatePct(proj.vatRatePct);
     setCompany(proj.company);
     setQuoteItems(proj.quoteItems ?? []);
+    setSiteNote(proj.siteNote ?? '');
+    setIncludeSiteNoteInPdf(proj.includeSiteNoteInPdf ?? true);
+    setSitePhotos(proj.sitePhotos ?? []);
+    setIncludeSitePhotosInPdf(proj.includeSitePhotosInPdf ?? true);
+    setStorageWarning(null);
 
     const focusGeom =
       proj.geometry.areaPoints.length > 0 || proj.geometry.linePoints.length > 0
@@ -304,14 +356,14 @@ export function App() {
   );
 
   const handleCreateProject = useCallback(() => {
-    const fresh = makeFreshProject(company, locale);
+    const fresh = makeFreshProject(company, locale, priceBook);
     setProjects((prev) => {
       const next = [fresh, ...prev];
       projectRepository.saveLibrary({ activeProjectId: fresh.id, projects: next });
       return next;
     });
     loadProjectIntoEditor(fresh);
-  }, [company, locale, loadProjectIntoEditor]);
+  }, [company, locale, priceBook, loadProjectIntoEditor]);
 
   const handleDuplicateProject = useCallback(
     (id: string) => {
@@ -390,10 +442,20 @@ export function App() {
         params,
         unitPriceEur,
         vatRatePct,
+        marginPct: priceBook.marginPct,
         geometrySource,
         locale,
       }),
-    [preset, summary, params, unitPriceEur, vatRatePct, geometrySource, locale]
+    [
+      preset,
+      summary,
+      params,
+      unitPriceEur,
+      vatRatePct,
+      priceBook.marginPct,
+      geometrySource,
+      locale,
+    ]
   );
 
   const commitActiveCutout = useCallback(() => {
@@ -924,18 +986,72 @@ export function App() {
     });
   }, [geometry, pushUndoSnapshot]);
 
-  const handleSelectPreset = useCallback((nextId: string) => {
-    const nextPreset = getPresetById(nextId);
-    setPresetId(nextPreset.id);
-    setParams(getDefaultParamValues(nextPreset));
-    setUnitPriceEur(nextPreset.defaultUnitPriceEur);
-    trackEvent('preset_selected', { presetId: nextPreset.id });
-    if (nextPreset.basis === 'line') {
-      setActiveTool('line');
-    } else {
-      setActiveTool((curr) => (curr === 'line' ? 'area' : curr));
-    }
+  const handleSelectPreset = useCallback(
+    (nextId: string) => {
+      const nextPreset = getPresetById(nextId);
+      const resolved = resolvePresetDefaults(nextPreset, priceBook);
+      setPresetId(nextPreset.id);
+      setParams(resolved.params);
+      setUnitPriceEur(resolved.unitPriceEur);
+      trackEvent('preset_selected', { presetId: nextPreset.id });
+      if (nextPreset.basis === 'line') {
+        setActiveTool('line');
+      } else {
+        setActiveTool((curr) => (curr === 'line' ? 'area' : curr));
+      }
+    },
+    [priceBook]
+  );
+
+  const handleChangePriceBook = useCallback((patch: Partial<PriceBook>) => {
+    setPriceBook((prev) => {
+      const next: PriceBook = {
+        ...prev,
+        ...patch,
+        presets: patch.presets ?? prev.presets,
+      };
+      priceBookRepository.save(next);
+      return next;
+    });
   }, []);
+
+  const handleSaveCurrentAsDefaults = useCallback(() => {
+    const hasWaste = preset.parameters.some((p) => p.key === 'wastePct');
+    const wasteVal = hasWaste ? params.wastePct : undefined;
+    const nextBook = savePresetToPriceBook(
+      priceBook,
+      preset.id,
+      unitPriceEur,
+      wasteVal
+    );
+    const ok = priceBookRepository.save(nextBook);
+    setPriceBook(nextBook);
+    showStatus(
+      ok
+        ? locale === 'en'
+          ? `Saved your default prices for ${preset.name}`
+          : `Omat oletushinnat tallennettu (${preset.name})`
+        : locale === 'en'
+          ? 'Could not save prices — browser storage is full.'
+          : 'Hintojen tallennus epäonnistui — selaimen tallennustila on täynnä.',
+      3000
+    );
+  }, [locale, params.wastePct, preset, priceBook, showStatus, unitPriceEur]);
+
+  const handleResetPriceBook = useCallback(() => {
+    priceBookRepository.clear();
+    const freshBook: PriceBook = { ...DEFAULT_PRICE_BOOK, presets: {} };
+    setPriceBook(freshBook);
+    const builtIn = getPresetById(preset.id, locale);
+    setUnitPriceEur(builtIn.defaultUnitPriceEur);
+    setParams(getDefaultParamValues(builtIn));
+    showStatus(
+      locale === 'en'
+        ? 'Restored Maamitta default prices'
+        : 'Maamitan oletushinnat palautettu',
+      2800
+    );
+  }, [locale, preset.id, showStatus]);
 
   const handleLocateUser = useCallback(() => {
     if (!navigator.geolocation) return;
@@ -1015,9 +1131,15 @@ export function App() {
     (label: string, qty: number, unitLabel: string, unitPriceExclVat: number) => {
       const cleanLabel = label.trim();
       if (!cleanLabel || qty <= 0 || unitPriceExclVat < 0) return;
-      const subtotalEur = qty * unitPriceExclVat;
+      const baseSubtotal = qty * unitPriceExclVat;
+      const { totalWithMarginEur: subtotalEur } = applyMargin(
+        baseSubtotal,
+        priceBook.marginPct
+      );
+      const effectiveRate = qty > 0 ? subtotalEur / qty : unitPriceExclVat;
       const vatEur = subtotalEur * (vatRatePct / 100);
       const totalEur = subtotalEur + vatEur;
+      const rateDisplay = Number(effectiveRate.toFixed(2));
       const item: QuoteZoneItem = {
         id: `custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
         label: cleanLabel,
@@ -1025,7 +1147,7 @@ export function App() {
         presetName: locale === 'en' ? 'Custom' : 'Oma rivi',
         basisValue: qty,
         basisUnit: 'kpl',
-        summaryText: `${qty} ${unitLabel || (locale === 'en' ? 'pcs' : 'kpl')} × ${unitPriceExclVat} €`,
+        summaryText: `${qty} ${unitLabel || (locale === 'en' ? 'pcs' : 'kpl')} × ${rateDisplay} €`,
         subtotalEur,
         vatEur,
         totalEur,
@@ -1037,7 +1159,7 @@ export function App() {
         basisUnit: 'kpl',
       });
     },
-    [locale, quoteItems.length, vatRatePct]
+    [locale, priceBook.marginPct, quoteItems.length, vatRatePct]
   );
 
   const handleConvertLineToCorridor = useCallback(
@@ -1135,6 +1257,10 @@ export function App() {
         summary,
         estimate,
         quoteItems,
+        siteNote,
+        includeSiteNoteInPdf,
+        sitePhotos,
+        includeSitePhotosInPdf,
         mapSnapshotDataUrl: snapshot,
         mapAttribution: BASE_LAYERS[baseLayer].attribution,
         locale,
@@ -1155,6 +1281,10 @@ export function App() {
     summary,
     estimate,
     quoteItems,
+    siteNote,
+    includeSiteNoteInPdf,
+    sitePhotos,
+    includeSitePhotosInPdf,
     baseLayer,
     geometry,
     locale,
@@ -1383,8 +1513,26 @@ export function App() {
         params={params}
         unitPriceEur={unitPriceEur}
         vatRatePct={vatRatePct}
+        priceBook={priceBook}
+        onChangePriceBook={handleChangePriceBook}
+        onSaveCurrentAsDefaults={handleSaveCurrentAsDefaults}
+        onResetPriceBook={handleResetPriceBook}
         estimate={estimate}
         company={company}
+        siteNote={siteNote}
+        includeSiteNoteInPdf={includeSiteNoteInPdf}
+        sitePhotos={sitePhotos}
+        includeSitePhotosInPdf={includeSitePhotosInPdf}
+        storageWarning={storageWarning}
+        onChangeSiteNote={setSiteNote}
+        onToggleIncludeSiteNote={setIncludeSiteNoteInPdf}
+        onAddSitePhotos={(added) =>
+          setSitePhotos((prev) => [...prev, ...added].slice(0, 3))
+        }
+        onRemoveSitePhoto={(id) =>
+          setSitePhotos((prev) => prev.filter((ph) => ph.id !== id))
+        }
+        onToggleIncludeSitePhotos={setIncludeSitePhotosInPdf}
         onSelectPreset={handleSelectPreset}
         onChangeParam={(key, value) =>
           setParams((prev) => ({ ...prev, [key]: value }))

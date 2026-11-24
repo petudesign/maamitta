@@ -5,6 +5,7 @@ import type {
   CompanyInfo,
   MeasurementSummary,
   QuoteZoneItem,
+  SitePhoto,
 } from '../engine/types';
 import { getMessages, type Locale } from '../i18n';
 
@@ -14,6 +15,10 @@ export interface PdfQuoteInput {
   summary: MeasurementSummary;
   estimate: CalculationResult;
   quoteItems?: QuoteZoneItem[];
+  siteNote?: string;
+  includeSiteNoteInPdf?: boolean;
+  sitePhotos?: SitePhoto[];
+  includeSitePhotosInPdf?: boolean;
   mapSnapshotDataUrl: string | null;
   mapAttribution: string;
   locale?: Locale;
@@ -107,6 +112,10 @@ export function downloadPdfQuote(input: PdfQuoteInput): void {
     summary,
     estimate,
     quoteItems = [],
+    siteNote = '',
+    includeSiteNoteInPdf = false,
+    sitePhotos = [],
+    includeSitePhotosInPdf = false,
     mapSnapshotDataUrl,
     mapAttribution,
     locale = 'fi',
@@ -430,26 +439,143 @@ export function downloadPdfQuote(input: PdfQuoteInput): void {
     { align: 'right' }
   );
 
-  // Footer disclaimer + crisp vector Maamitta logo
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(110, 123, 118);
-  doc.text(t.disclaimer, margin, 279);
+  const drawFooter = () => {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(110, 123, 118);
+    doc.text(t.disclaimer, margin, 279);
 
-  const footerText = t.footerBrand;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(24, 78, 59);
-  const textW = doc.getTextWidth(footerText);
-  const markSize = 4.2;
-  const gap = 2.4;
-  drawMaamittaMark(
-    doc,
-    pageW - margin - textW - gap - markSize,
-    283.2,
-    markSize
-  );
-  doc.text(footerText, pageW - margin, 286.3, { align: 'right' });
+    const footerText = t.footerBrand;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(24, 78, 59);
+    const textW = doc.getTextWidth(footerText);
+    const markSize = 4.2;
+    const gap = 2.4;
+    drawMaamittaMark(
+      doc,
+      pageW - margin - textW - gap - markSize,
+      283.2,
+      markSize
+    );
+    doc.text(footerText, pageW - margin, 286.3, { align: 'right' });
+  };
+
+  drawFooter();
+
+  // Optional clean A4 appendix page for site notes and/or site photos
+  const cleanNote = includeSiteNoteInPdf ? pdfSafeText(siteNote) : '';
+  const includedPhotos = includeSitePhotosInPdf
+    ? sitePhotos.slice(0, 3)
+    : [];
+
+  if (cleanNote || includedPhotos.length > 0) {
+    doc.addPage();
+    let ay = 20;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(20, 26, 24);
+    const appendixTitle =
+      locale === 'en'
+        ? 'Site notes & photos'
+        : 'Kohteen muistiinpanot ja valokuvat';
+    doc.text(appendixTitle, margin, ay);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(110, 123, 118);
+    const subTitle = pdfSafeText(company.projectTitle.trim() || t.defaultTitle);
+    doc.text(subTitle, pageW - margin, ay, { align: 'right' });
+
+    ay += 5;
+    doc.setDrawColor(225, 223, 217);
+    doc.setLineWidth(0.35);
+    doc.line(margin, ay, pageW - margin, ay);
+    ay += 8;
+
+    if (cleanNote) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(20, 26, 24);
+      doc.text(
+        locale === 'en' ? 'Notes' : 'Huomiot kohteesta',
+        margin,
+        ay
+      );
+      ay += 5;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(45, 53, 50);
+      const wrapped = doc.splitTextToSize(cleanNote, contentW - 8) as string[];
+      const boxH = Math.max(14, wrapped.length * 4.8 + 6);
+      doc.setFillColor(248, 247, 244);
+      doc.setDrawColor(220, 218, 212);
+      doc.roundedRect(margin, ay - 1, contentW, boxH, 2, 2, 'FD');
+      doc.text(wrapped, margin + 4, ay + 4.5);
+      ay += boxH + 8;
+    }
+
+    if (includedPhotos.length > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(20, 26, 24);
+      doc.text(
+        locale === 'en'
+          ? `Site photos (${includedPhotos.length})`
+          : `Valokuvat kohteesta (${includedPhotos.length})`,
+        margin,
+        ay
+      );
+      ay += 5;
+
+      const cols = includedPhotos.length === 1 ? 1 : 2;
+      const gapMm = 6;
+      const cellW = cols === 1 ? contentW : (contentW - gapMm) / 2;
+      const cellH = cols === 1 ? 115 : 74;
+
+      includedPhotos.forEach((photo, idx) => {
+        const col = idx % cols;
+        const row = Math.floor(idx / cols);
+        const x = margin + col * (cellW + gapMm);
+        const yPos = ay + row * (cellH + 12);
+
+        if (yPos + cellH > 270) return;
+
+        try {
+          const props = doc.getImageProperties(photo.dataUrl);
+          const ratio = props.width / Math.max(1, props.height);
+          let drawW = cellW;
+          let drawH = cellW / ratio;
+          if (drawH > cellH) {
+            drawH = cellH;
+            drawW = cellH * ratio;
+          }
+          const offsetX = x + (cellW - drawW) / 2;
+          const offsetY = yPos + (cellH - drawH) / 2;
+
+          doc.setFillColor(246, 245, 242);
+          doc.setDrawColor(218, 216, 210);
+          doc.roundedRect(x, yPos, cellW, cellH, 2, 2, 'FD');
+          doc.addImage(photo.dataUrl, 'JPEG', offsetX, offsetY, drawW, drawH);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(110, 123, 118);
+          doc.text(
+            pdfSafeText(photo.name || `Kuva ${idx + 1}`).slice(0, 44),
+            x,
+            yPos + cellH + 4.5
+          );
+        } catch {
+          // Ignore malformed photo gracefully
+        }
+      });
+    }
+
+    drawFooter();
+  }
 
   const isoDate = new Date().toISOString().slice(0, 10);
   doc.save(`${t.filePrefix}-${isoDate}.pdf`);

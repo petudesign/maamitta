@@ -72,6 +72,13 @@ export interface CalculationResult {
   billableQuantity: number;
   billableUnit: string;
   lines: CalculationLine[];
+  /** Raw cost subtotal before optional contractor margin (excl. VAT) */
+  baseSubtotalEur: number;
+  /** Optional contractor margin % (0–30), folded into subtotalEur for client quotes */
+  marginPct: number;
+  /** EUR amount contributed by contractor margin */
+  marginEur: number;
+  /** Client-facing subtotal excl. VAT (includes margin when > 0) */
   subtotalEur: number;
   vatRatePct: number;
   vatEur: number;
@@ -79,6 +86,28 @@ export interface CalculationResult {
   totalMinEur: number;
   totalMaxEur: number;
   accuracy: AccuracyMeta;
+}
+
+export interface PresetPriceOverride {
+  /** Custom default unit price in EUR (excl. VAT) */
+  unitPriceEur?: number;
+  /** Custom default waste percentage (for presets supporting wastePct) */
+  wastePct?: number;
+}
+
+export interface PriceBook {
+  /** Saved per-preset default unit prices and waste percentages */
+  presets: Record<string, PresetPriceOverride>;
+  /** Saved default hourly labour rate in EUR (excl. VAT) */
+  hourlyRateEur: number;
+  /** Optional contractor margin percentage (0–30%) */
+  marginPct: number;
+}
+
+export interface SitePhoto {
+  id: string;
+  dataUrl: string;
+  name: string;
 }
 
 export interface QuoteZoneItem {

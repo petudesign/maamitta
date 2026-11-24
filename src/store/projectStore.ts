@@ -3,6 +3,7 @@ import type {
   GeometrySource,
   MeasurementGeometry,
   QuoteZoneItem,
+  SitePhoto,
 } from '../engine/types';
 
 export interface SavedProject {
@@ -17,6 +18,10 @@ export interface SavedProject {
   vatRatePct: number;
   company: CompanyInfo;
   quoteItems: QuoteZoneItem[];
+  siteNote: string;
+  includeSiteNoteInPdf: boolean;
+  sitePhotos: SitePhoto[];
+  includeSitePhotosInPdf: boolean;
   updatedAt: string;
 }
 
@@ -27,7 +32,7 @@ export interface ProjectLibraryState {
 
 export interface ProjectRepository {
   loadLibrary(): ProjectLibraryState | null;
-  saveLibrary(state: ProjectLibraryState): void;
+  saveLibrary(state: ProjectLibraryState): boolean;
   clear(): void;
 }
 
@@ -110,6 +115,29 @@ function sanitizeQuoteItems(raw: unknown): QuoteZoneItem[] {
   return valid;
 }
 
+function sanitizeSitePhotos(raw: unknown): SitePhoto[] {
+  if (!Array.isArray(raw)) return [];
+  const valid: SitePhoto[] = [];
+  for (const item of raw) {
+    if (valid.length >= 3) break;
+    if (!item || typeof item !== 'object') continue;
+    const photo = item as Partial<SitePhoto>;
+    if (
+      typeof photo.id === 'string' &&
+      photo.id &&
+      typeof photo.dataUrl === 'string' &&
+      photo.dataUrl.startsWith('data:image/')
+    ) {
+      valid.push({
+        id: photo.id,
+        dataUrl: photo.dataUrl,
+        name: typeof photo.name === 'string' ? photo.name.slice(0, 80) : 'Kuva',
+      });
+    }
+  }
+  return valid;
+}
+
 export function sanitizeProject(raw: unknown): SavedProject | null {
   if (!raw || typeof raw !== 'object') return null;
   const p = raw as Partial<SavedProject>;
@@ -155,6 +183,14 @@ export function sanitizeProject(raw: unknown): SavedProject | null {
           : undefined,
     },
     quoteItems: sanitizeQuoteItems(p.quoteItems),
+    siteNote: typeof p.siteNote === 'string' ? p.siteNote.slice(0, 1200) : '',
+    includeSiteNoteInPdf:
+      typeof p.includeSiteNoteInPdf === 'boolean' ? p.includeSiteNoteInPdf : true,
+    sitePhotos: sanitizeSitePhotos(p.sitePhotos),
+    includeSitePhotosInPdf:
+      typeof p.includeSitePhotosInPdf === 'boolean'
+        ? p.includeSitePhotosInPdf
+        : true,
     updatedAt: parsedDate,
   };
 }
@@ -197,11 +233,13 @@ export class LocalStorageProjectRepository implements ProjectRepository {
     }
   }
 
-  saveLibrary(state: ProjectLibraryState): void {
+  saveLibrary(state: ProjectLibraryState): boolean {
     try {
       window.localStorage.setItem(LIBRARY_KEY, JSON.stringify(state));
+      return true;
     } catch {
-      // Ignore quota errors in private browsing mode
+      // QuotaExceededError or private browsing mode
+      return false;
     }
   }
 

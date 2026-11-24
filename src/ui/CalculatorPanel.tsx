@@ -1,5 +1,6 @@
 import {
   Building2,
+  Camera,
   Check,
   ChevronDown,
   ChevronUp,
@@ -15,6 +16,8 @@ import {
   Pencil,
   Plus,
   PlusCircle,
+  RotateCcw,
+  Save,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -28,14 +31,18 @@ import {
   formatNumber,
 } from '../engine/format';
 import { summarizeGeometry } from '../engine/geometry';
+import { hasCustomPriceBook, MAX_MARGIN_PCT } from '../engine/priceBook';
 import type {
   CalculationResult,
   CompanyInfo,
   DrawTool,
   MaterialPreset,
   MeasurementSummary,
+  PriceBook,
   QuoteZoneItem,
+  SitePhoto,
 } from '../engine/types';
+import { compressSitePhoto, MAX_SITE_PHOTOS } from '../export/imageCompress';
 import { getMessages, type Locale } from '../i18n';
 import { trackEvent } from '../analytics/track';
 import { getPresets } from '../presets/finland';
@@ -83,8 +90,22 @@ interface CalculatorPanelProps {
   params: Record<string, number>;
   unitPriceEur: number;
   vatRatePct: number;
+  priceBook: PriceBook;
+  onChangePriceBook: (patch: Partial<PriceBook>) => void;
+  onSaveCurrentAsDefaults: () => void;
+  onResetPriceBook: () => void;
   estimate: CalculationResult;
   company: CompanyInfo;
+  siteNote: string;
+  includeSiteNoteInPdf: boolean;
+  sitePhotos: SitePhoto[];
+  includeSitePhotosInPdf: boolean;
+  storageWarning: string | null;
+  onChangeSiteNote: (note: string) => void;
+  onToggleIncludeSiteNote: (include: boolean) => void;
+  onAddSitePhotos: (photos: SitePhoto[]) => void;
+  onRemoveSitePhoto: (id: string) => void;
+  onToggleIncludeSitePhotos: (include: boolean) => void;
   onSelectPreset: (presetId: string) => void;
   onChangeParam: (key: string, value: number) => void;
   onChangeUnitPrice: (price: number) => void;
@@ -130,8 +151,22 @@ export function CalculatorPanel({
   params,
   unitPriceEur,
   vatRatePct,
+  priceBook,
+  onChangePriceBook,
+  onSaveCurrentAsDefaults,
+  onResetPriceBook,
   estimate,
   company,
+  siteNote,
+  includeSiteNoteInPdf,
+  sitePhotos,
+  includeSitePhotosInPdf,
+  storageWarning,
+  onChangeSiteNote,
+  onToggleIncludeSiteNote,
+  onAddSitePhotos,
+  onRemoveSitePhoto,
+  onToggleIncludeSitePhotos,
   onSelectPreset,
   onChangeParam,
   onChangeUnitPrice,
@@ -159,11 +194,59 @@ export function CalculatorPanel({
   const [customLabel, setCustomLabel] = useState('');
   const [customQty, setCustomQty] = useState(1);
   const [customUnit, setCustomUnit] = useState('h');
-  const [customPrice, setCustomPrice] = useState(85);
+  const [customPrice, setCustomPrice] = useState(priceBook.hourlyRateEur);
+  const [priceBookOpen, setPriceBookOpen] = useState(false);
+  const [savedPriceFlash, setSavedPriceFlash] = useState(false);
+  const [isCompressingPhotos, setIsCompressingPhotos] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [isTouchUi, setIsTouchUi] = useState<boolean>(() =>
+    typeof window !== 'undefined'
+      ? window.matchMedia('(pointer: coarse), (max-width: 900px)').matches
+      : false
+  );
   const projectSwitcherRef = useRef<HTMLDivElement | null>(null);
   const helpRef = useRef<HTMLDivElement | null>(null);
   const copyTimerRef = useRef<number | null>(null);
   const summaryCopyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setCustomPrice(priceBook.hourlyRateEur);
+  }, [priceBook.hourlyRateEur]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(pointer: coarse), (max-width: 900px)');
+    const onChange = () => setIsTouchUi(mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  const handleSitePhotoUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    const remaining = Math.max(0, MAX_SITE_PHOTOS - sitePhotos.length);
+    if (remaining <= 0) return;
+
+    setIsCompressingPhotos(true);
+    setPhotoError(null);
+    try {
+      const compressed: SitePhoto[] = [];
+      for (const file of files.slice(0, remaining)) {
+        compressed.push(await compressSitePhoto(file, 1200, 0.75));
+      }
+      onAddSitePhotos(compressed);
+    } catch {
+      setPhotoError(
+        locale === 'en'
+          ? 'Could not process that image. Try a JPG or PNG photo.'
+          : 'Kuvan käsittely epäonnistui. Kokeile JPG- tai PNG-kuvaa.'
+      );
+    } finally {
+      setIsCompressingPhotos(false);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -355,9 +438,13 @@ export function CalculatorPanel({
                 ? 'Pan & zoom freely · choose Pick or Area to measure'
                 : 'Tutki karttaa vapaasti · valitse Poimi tai Alue mitataksesi')}
             {activeTool === 'pick' &&
-              (locale === 'en'
-                ? 'Click to pick · Shift+Click to add multiple parcels'
-                : 'Klikkaa poimiaksesi · Shift+klikkaus valitsee useamman')}
+              (isTouchUi
+                ? locale === 'en'
+                  ? 'Tap a parcel on the map · use Add to quote for multiple zones'
+                  : 'Napauta tonttia kartalta · lisää useita alueita + Lisää tarjoukseen'
+                : locale === 'en'
+                  ? 'Click to pick · Shift+Click to add multiple parcels'
+                  : 'Klikkaa poimiaksesi · Shift+klikkaus valitsee useamman')}
             {activeTool === 'area' && t.hintArea}
             {activeTool === 'cutout' && t.hintCutout}
             {activeTool === 'line' && t.hintLine}
@@ -1013,6 +1100,125 @@ export function CalculatorPanel({
               />
             </div>
           </div>
+
+          <div className="pricebook-wrap">
+            <button
+              type="button"
+              className="pricebook-toggle"
+              aria-expanded={priceBookOpen}
+              onClick={() => setPriceBookOpen((o) => !o)}
+            >
+              <span>
+                {locale === 'en' ? 'My prices' : 'Oma hinnasto'}
+                {hasCustomPriceBook(priceBook)
+                  ? locale === 'en'
+                    ? ' · Saved'
+                    : ' · Tallennettu'
+                  : ''}
+              </span>
+              {priceBookOpen ? (
+                <ChevronUp size={15} color="var(--ink-muted)" />
+              ) : (
+                <ChevronDown size={15} color="var(--ink-muted)" />
+              )}
+            </button>
+
+            {priceBookOpen && (
+              <div className="pricebook-body">
+                <div className="field-grid">
+                  <div className="field">
+                    <label htmlFor="pricebook-hourly">
+                      {locale === 'en'
+                        ? 'Default labour (€/h)'
+                        : 'Oletustuntihinta (€/h)'}
+                    </label>
+                    <input
+                      id="pricebook-hourly"
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      max={1000}
+                      step={5}
+                      className="tabular-nums"
+                      value={priceBook.hourlyRateEur}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        onChangePriceBook({
+                          hourlyRateEur: Number.isFinite(val)
+                            ? Math.min(1000, Math.max(0, val))
+                            : 0,
+                        });
+                      }}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="pricebook-margin">
+                      {locale === 'en'
+                        ? `Margin (0–${MAX_MARGIN_PCT}%)`
+                        : `Kate (0–${MAX_MARGIN_PCT} %)`}
+                    </label>
+                    <input
+                      id="pricebook-margin"
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      max={MAX_MARGIN_PCT}
+                      step={1}
+                      className="tabular-nums"
+                      value={priceBook.marginPct}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        onChangePriceBook({
+                          marginPct: Number.isFinite(val)
+                            ? Math.min(MAX_MARGIN_PCT, Math.max(0, val))
+                            : 0,
+                        });
+                      }}
+                    />
+                  </div>
+                </div>
+                <p className="pricebook-hint">
+                  {locale === 'en'
+                    ? 'Margin is folded into client quote prices (never shown as a separate line in the PDF).'
+                    : 'Kate sulautuu tarjouksen rivihintoihin eikä näy asiakkaan PDF:ssä erillisenä rivinä.'}
+                </p>
+                <div className="pricebook-actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary pricebook-btn"
+                    onClick={() => {
+                      onSaveCurrentAsDefaults();
+                      setSavedPriceFlash(true);
+                      window.setTimeout(() => setSavedPriceFlash(false), 1800);
+                    }}
+                  >
+                    {savedPriceFlash ? <Check size={14} /> : <Save size={14} />}
+                    <span>
+                      {savedPriceFlash
+                        ? locale === 'en'
+                          ? 'Saved!'
+                          : 'Tallennettu!'
+                        : locale === 'en'
+                          ? 'Save as defaults'
+                          : 'Tallenna oletuksiksi'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-subtle pricebook-btn"
+                    onClick={onResetPriceBook}
+                  >
+                    <RotateCcw size={14} />
+                    <span>
+                      {locale === 'en'
+                        ? 'Reset defaults'
+                        : 'Palauta Maamitan oletukset'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </section>
 
         {/* Estimate results */}
@@ -1061,6 +1267,13 @@ export function CalculatorPanel({
                   {formatEur(estimate.subtotalEur, locale)}
                 </span>
               </div>
+              {estimate.marginPct > 0 && estimate.marginEur > 0 && (
+                <div className="margin-note-row tabular-nums">
+                  {locale === 'en'
+                    ? `Incl. ${formatNumber(estimate.marginPct, 0, locale)}% margin (+${formatEur(estimate.marginEur, locale)}) · merged in PDF`
+                    : `Sis. kate ${formatNumber(estimate.marginPct, 0, locale)} % (+${formatEur(estimate.marginEur, locale)}) · sulautuu PDF:ään`}
+                </div>
+              )}
               <div className="result-row">
                 <span className="result-row-label">
                   {t.vatRowLabel(
@@ -1252,6 +1465,143 @@ export function CalculatorPanel({
             )}
           </section>
         )}
+
+        {/* Site notes & photos */}
+        <section className="card">
+          <div className="card-title">
+            <span>
+              {locale === 'en'
+                ? 'Site notes & photos'
+                : 'Muistiinpanot & kuvat'}
+            </span>
+            <span className="tabular-nums">
+              {sitePhotos.length}/{MAX_SITE_PHOTOS}
+            </span>
+          </div>
+
+          <div className="field-grid">
+            <div className="field field-full">
+              <label htmlFor="site-note-input">
+                {locale === 'en'
+                  ? 'Notes (gate width, slopes, access)'
+                  : 'Huomiot (portin leveys, kaadot, erityishuomiot)'}
+              </label>
+              <textarea
+                id="site-note-input"
+                className="site-note-textarea"
+                rows={2}
+                maxLength={1200}
+                placeholder={
+                  locale === 'en'
+                    ? 'E.g. 2.6 m gate width, drain slopes toward street…'
+                    : 'Esim. portin leveys 2,6 m, kaadot kadulle päin…'
+                }
+                value={siteNote}
+                onChange={(e) => onChangeSiteNote(e.target.value)}
+              />
+            </div>
+
+            <label className="field-full site-check-row">
+              <input
+                type="checkbox"
+                checked={includeSiteNoteInPdf}
+                onChange={(e) => onToggleIncludeSiteNote(e.target.checked)}
+              />
+              <span>
+                {locale === 'en'
+                  ? 'Show notes in quote PDF'
+                  : 'Näytä tarjous-PDF:ssä'}
+              </span>
+            </label>
+
+            <div className="field field-full">
+              <div className="site-photo-actions">
+                <label
+                  className="btn btn-subtle site-photo-upload-btn"
+                  aria-disabled={
+                    isCompressingPhotos || sitePhotos.length >= MAX_SITE_PHOTOS
+                  }
+                  style={{
+                    cursor:
+                      isCompressingPhotos || sitePhotos.length >= MAX_SITE_PHOTOS
+                        ? 'not-allowed'
+                        : 'pointer',
+                    opacity:
+                      isCompressingPhotos || sitePhotos.length >= MAX_SITE_PHOTOS
+                        ? 0.55
+                        : 1,
+                  }}
+                >
+                  <Camera size={15} />
+                  <span>
+                    {isCompressingPhotos
+                      ? locale === 'en'
+                        ? 'Compressing…'
+                        : 'Pakataan…'
+                      : locale === 'en'
+                        ? `Add photo (${sitePhotos.length}/${MAX_SITE_PHOTOS})`
+                        : `Lisää valokuva (${sitePhotos.length}/${MAX_SITE_PHOTOS})`}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    disabled={
+                      isCompressingPhotos ||
+                      sitePhotos.length >= MAX_SITE_PHOTOS
+                    }
+                    onChange={handleSitePhotoUpload}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+              </div>
+
+              {(photoError || storageWarning) && (
+                <div className="site-storage-warning" role="alert">
+                  {photoError || storageWarning}
+                </div>
+              )}
+
+              {sitePhotos.length > 0 && (
+                <>
+                  <div className="site-photo-grid">
+                    {sitePhotos.map((photo) => (
+                      <div key={photo.id} className="site-photo-thumb">
+                        <img src={photo.dataUrl} alt={photo.name} />
+                        <button
+                          type="button"
+                          className="site-photo-remove"
+                          onClick={() => onRemoveSitePhoto(photo.id)}
+                          aria-label={
+                            locale === 'en'
+                              ? `Remove ${photo.name}`
+                              : `Poista ${photo.name}`
+                          }
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <label className="site-check-row">
+                    <input
+                      type="checkbox"
+                      checked={includeSitePhotosInPdf}
+                      onChange={(e) =>
+                        onToggleIncludeSitePhotos(e.target.checked)
+                      }
+                    />
+                    <span>
+                      {locale === 'en'
+                        ? 'Attach photos as PDF appendix page'
+                        : 'Liitä kuvat PDF-liitesivulle'}
+                    </span>
+                  </label>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
 
         {/* Quote metadata */}
         <section className="card">

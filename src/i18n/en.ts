@@ -43,12 +43,13 @@ export const en: Messages = {
     pickedPrefix: 'Picked:',
     subtractedPrefix: 'Auto-subtracted:',
     searchingBuildings: 'Finding buildings inside area…',
-    buildingsSubtracted: (n) => `${n} building(s) subtracted automatically.`,
+    buildingsSubtracted: (n) =>
+      `${n} ${n === 1 ? 'building' : 'buildings'} subtracted automatically.`,
     noBuildingsFound: 'No buildings found inside this area.',
     findingBuildingsInParcel: (label) =>
       `${label} — finding buildings to subtract…`,
     pickedWithBuildings: (label, count) =>
-      `Picked: ${label} (${count} building(s) subtracted)`,
+      `Picked: ${label} (${count} ${count === 1 ? 'building' : 'buildings'} subtracted)`,
   },
   panel: {
     heading: 'Calculator & quote',

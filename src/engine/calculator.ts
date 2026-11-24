@@ -15,6 +15,8 @@ export interface CalculatorInput {
   params: Record<string, number>;
   unitPriceEur: number;
   vatRatePct: number;
+  /** Optional contractor margin % (0–30), folded into client-facing subtotal */
+  marginPct?: number;
   geometrySource?: GeometrySource;
   locale?: Locale;
 }
@@ -46,11 +48,14 @@ export function calculateEstimate(input: CalculatorInput): CalculationResult {
     params,
     unitPriceEur,
     vatRatePct,
+    marginPct = 0,
     geometrySource = 'manual',
     locale = 'fi',
   } = input;
   const msg = getMessages(locale).calc;
   const safePrice = clamp(unitPriceEur, 0, 100_000);
+  const safeMargin = clamp(marginPct, 0, 30);
+  const effectiveUnitPrice = safePrice * (1 + safeMargin / 100);
   const safeVat = clamp(vatRatePct, 0, 50);
   const accuracy = getAccuracyMeta(geometrySource, locale);
 
@@ -268,7 +273,7 @@ export function calculateEstimate(input: CalculatorInput): CalculationResult {
 
     case 'kunnossapito': {
       const visits = Math.max(1, readParam(params, preset, 'visits'));
-      const perVisitEur = basisValue * safePrice;
+      const perVisitEur = basisValue * effectiveUnitPrice;
 
       billableQuantity = basisValue * visits;
       billableUnit = 'm²·kerta';
@@ -300,7 +305,9 @@ export function calculateEstimate(input: CalculatorInput): CalculationResult {
     }
   }
 
-  const subtotalEur = billableQuantity * safePrice;
+  const baseSubtotalEur = billableQuantity * safePrice;
+  const subtotalEur = billableQuantity * effectiveUnitPrice;
+  const marginEur = subtotalEur - baseSubtotalEur;
   const vatEur = subtotalEur * (safeVat / 100);
   const totalEur = subtotalEur + vatEur;
   const marginRatio = accuracy.marginPct / 100;
@@ -313,6 +320,9 @@ export function calculateEstimate(input: CalculatorInput): CalculationResult {
     billableQuantity,
     billableUnit,
     lines,
+    baseSubtotalEur,
+    marginPct: safeMargin,
+    marginEur,
     subtotalEur,
     vatRatePct: safeVat,
     vatEur,
