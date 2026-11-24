@@ -21,6 +21,7 @@ interface PostHogStub extends Array<unknown> {
     eventName: string,
     props?: Record<string, string | number | boolean>
   ) => void;
+  startSessionRecording?: () => void;
   __SV?: number;
 }
 
@@ -131,7 +132,7 @@ export function initPostHog(): void {
 
   ph.init?.(key, {
     api_host: apiHost,
-    persistence: 'memory',
+    persistence: 'localStorage',
     person_profiles: 'identified_only',
     autocapture: true,
     capture_pageview: true,
@@ -147,4 +148,5 @@ export function initPostHog(): void {
   if (ref) {
     ph.register?.({ ref });
   }
+  ph.startSessionRecording?.();
 }
