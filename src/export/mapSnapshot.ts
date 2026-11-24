@@ -57,6 +57,63 @@ function drawRoundedPill(
   ctx.restore();
 }
 
+function collectGeomPoints(g: MeasurementGeometry): LngLat[] {
+  return [
+    ...g.areaPoints,
+    ...g.linePoints,
+    ...g.activeCutout,
+    ...g.cutouts.flat(),
+  ];
+}
+
+function centroidOf(pts: LngLat[]): LngLat {
+  let lng = 0;
+  let lat = 0;
+  for (const [x, y] of pts) {
+    lng += x;
+    lat += y;
+  }
+  return [lng / pts.length, lat / pts.length];
+}
+
+/**
+ * Picks the geographic bounds to frame in the PDF aerial image.
+ * Frames all zones together when they are in the same neighborhood (~2 km),
+ * but avoids zooming out across cities if an unrelated distant zone is selected.
+ */
+function selectFramingPoints(
+  geometry: MeasurementGeometry,
+  extraGeometries: MeasurementGeometry[]
+): LngLat[] {
+  const activePts = collectGeomPoints(geometry);
+  const nonEmptyExtras = extraGeometries
+    .map(collectGeomPoints)
+    .filter((pts) => pts.length >= 2);
+
+  const anchorPts =
+    activePts.length >= 2
+      ? activePts
+      : nonEmptyExtras[nonEmptyExtras.length - 1] ?? [];
+  if (anchorPts.length < 2) return [];
+
+  const [anchorLng, anchorLat] = centroidOf(anchorPts);
+  const maxLatDelta = 0.02; // ~2.2 km north-south
+  const maxLngDelta = 0.04; // ~2.2 km east-west at 60°N
+
+  const framed: LngLat[] = [...anchorPts];
+  for (const pts of nonEmptyExtras) {
+    if (pts === anchorPts) continue;
+    const [cLng, cLat] = centroidOf(pts);
+    if (
+      Math.abs(cLat - anchorLat) <= maxLatDelta &&
+      Math.abs(cLng - anchorLng) <= maxLngDelta
+    ) {
+      framed.push(...pts);
+    }
+  }
+  return framed;
+}
+
 /**
  * Renders a clean, client-ready aerial snapshot completely offscreen so the user's
  * live map never jumps or flickers. Excludes neighboring red parcel lines and edit
@@ -75,19 +132,14 @@ export async function renderCleanPdfMapSnapshot(
   } = options;
 
   const allGeoms = [...extraGeometries, geometry];
-  const allPts: LngLat[] = allGeoms.flatMap((g) => [
-    ...g.areaPoints,
-    ...g.linePoints,
-    ...g.activeCutout,
-    ...g.cutouts.flat(),
-  ]);
-  if (allPts.length < 2) return null;
+  const framedPts = selectFramingPoints(geometry, extraGeometries);
+  if (framedPts.length < 2) return null;
 
   let minLng = Infinity;
   let maxLng = -Infinity;
   let minLat = Infinity;
   let maxLat = -Infinity;
-  for (const [lng, lat] of allPts) {
+  for (const [lng, lat] of framedPts) {
     if (lng < minLng) minLng = lng;
     if (lng > maxLng) maxLng = lng;
     if (lat < minLat) minLat = lat;
