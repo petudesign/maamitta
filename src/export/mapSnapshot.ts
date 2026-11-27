@@ -1,8 +1,14 @@
-import maplibregl from 'maplibre-gl';
 import { formatLength } from '../engine/format';
-import { computeLineLengthM, toClosedRing } from '../engine/geometry';
+import {
+  collectGeometryPoints,
+  computeBounds,
+  computeCentroid,
+  toClosedRing,
+} from '../engine/geometry';
 import type { LngLat, MeasurementGeometry } from '../engine/types';
 import type { Locale } from '../i18n/types';
+import { computeEdgeLabelPlacements } from '../map/edgeLabels';
+import { maplibregl } from '../map/maplibre';
 import { type BaseLayerId, buildMapStyle } from '../map/providers';
 
 interface SnapshotOptions {
@@ -57,25 +63,6 @@ function drawRoundedPill(
   ctx.restore();
 }
 
-function collectGeomPoints(g: MeasurementGeometry): LngLat[] {
-  return [
-    ...g.areaPoints,
-    ...g.linePoints,
-    ...g.activeCutout,
-    ...g.cutouts.flat(),
-  ];
-}
-
-function centroidOf(pts: LngLat[]): LngLat {
-  let lng = 0;
-  let lat = 0;
-  for (const [x, y] of pts) {
-    lng += x;
-    lat += y;
-  }
-  return [lng / pts.length, lat / pts.length];
-}
-
 /**
  * Picks the geographic bounds to frame in the PDF aerial image.
  * Frames all zones together when they are in the same neighborhood (~2 km),
@@ -85,9 +72,9 @@ function selectFramingPoints(
   geometry: MeasurementGeometry,
   extraGeometries: MeasurementGeometry[]
 ): LngLat[] {
-  const activePts = collectGeomPoints(geometry);
+  const activePts = collectGeometryPoints(geometry);
   const nonEmptyExtras = extraGeometries
-    .map(collectGeomPoints)
+    .map(collectGeometryPoints)
     .filter((pts) => pts.length >= 2);
 
   const anchorPts =
@@ -96,14 +83,18 @@ function selectFramingPoints(
       : nonEmptyExtras[nonEmptyExtras.length - 1] ?? [];
   if (anchorPts.length < 2) return [];
 
-  const [anchorLng, anchorLat] = centroidOf(anchorPts);
+  const anchorCenter = computeCentroid(anchorPts);
+  if (!anchorCenter) return [];
+  const [anchorLng, anchorLat] = anchorCenter;
   const maxLatDelta = 0.02; // ~2.2 km north-south
   const maxLngDelta = 0.04; // ~2.2 km east-west at 60°N
 
   const framed: LngLat[] = [...anchorPts];
   for (const pts of nonEmptyExtras) {
     if (pts === anchorPts) continue;
-    const [cLng, cLat] = centroidOf(pts);
+    const center = computeCentroid(pts);
+    if (!center) continue;
+    const [cLng, cLat] = center;
     if (
       Math.abs(cLat - anchorLat) <= maxLatDelta &&
       Math.abs(cLng - anchorLng) <= maxLngDelta
@@ -135,16 +126,9 @@ export async function renderCleanPdfMapSnapshot(
   const framedPts = selectFramingPoints(geometry, extraGeometries);
   if (framedPts.length < 2) return null;
 
-  let minLng = Infinity;
-  let maxLng = -Infinity;
-  let minLat = Infinity;
-  let maxLat = -Infinity;
-  for (const [lng, lat] of framedPts) {
-    if (lng < minLng) minLng = lng;
-    if (lng > maxLng) maxLng = lng;
-    if (lat < minLat) minLat = lat;
-    if (lat > maxLat) maxLat = lat;
-  }
+  const bounds = computeBounds(framedPts);
+  if (!bounds) return null;
+  const [[minLng, minLat], [maxLng, maxLat]] = bounds;
 
   const container = document.createElement('div');
   container.style.position = 'fixed';
@@ -305,50 +289,17 @@ export async function renderCleanPdfMapSnapshot(
     // Draw crisp meter pills on visible edges with collision avoidance
     const placedPills: Array<{ x: number; y: number }> = [];
     const drawEdges = (pts: LngLat[], closed: boolean, bgColor: string) => {
-      const edgeCount = closed
-        ? pts.length >= 3
-          ? pts.length
-          : pts.length - 1
-        : pts.length - 1;
-      if (edgeCount <= 0) return;
-
-      const candidates: Array<{
-        x: number;
-        y: number;
-        pxLen: number;
-        distM: number;
-      }> = [];
-      for (let i = 0; i < edgeCount; i++) {
-        const a = pts[i];
-        const b = pts[(i + 1) % pts.length];
-        if (!a || !b) continue;
-        const distM = computeLineLengthM([a, b]);
-        if (distM < 4) continue;
-        const pa = map!.project(a);
-        const pb = map!.project(b);
-        const pxLen = Math.hypot(pa.x - pb.x, pa.y - pb.y);
-        if (pxLen < 52) continue;
-        candidates.push({
-          x: (pa.x + pb.x) / 2,
-          y: (pa.y + pb.y) / 2,
-          pxLen,
-          distM,
-        });
-      }
-
-      candidates.sort((c1, c2) => c2.pxLen - c1.pxLen);
-      let drawn = 0;
-      for (const c of candidates) {
-        if (drawn >= 24) break;
-        if (
-          placedPills.some(
-            (p) => Math.abs(p.x - c.x) < 84 && Math.abs(p.y - c.y) < 32
-          )
-        ) {
-          continue;
-        }
-        placedPills.push({ x: c.x, y: c.y });
-        drawn += 1;
+      const placements = computeEdgeLabelPlacements(pts, closed, {
+        project: (pt) => map!.project(pt),
+        minDistM: 4,
+        minPxLen: 52,
+        outwardOffsetPx: 0,
+        collisionWidthPx: 84,
+        collisionHeightPx: 32,
+        maxLabels: 24,
+        placed: placedPills,
+      });
+      for (const c of placements) {
         drawRoundedPill(ctx, c.x, c.y, formatLength(c.distM, locale), bgColor);
       }
     };

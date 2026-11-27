@@ -133,25 +133,19 @@ export function calculateEstimate(input: CalculatorInput): CalculationResult {
 
       lines.push(
         {
-          label: locale === 'en' ? 'Pavers (incl. waste)' : 'Kivet (sis. leikkausvara)',
+          label: msg.paversInclWaste,
           value: `${formatNumber(totalSqm, 1, locale)} m²`,
         },
         {
-          label:
-            locale === 'en'
-              ? `Pallets (${formatNumber(palletSqm, 0, locale)} m²)`
-              : `Kivilavat (${formatNumber(palletSqm, 0, locale)} m²)`,
+          label: msg.pallets(formatNumber(palletSqm, 0, locale)),
           value: `${pallets} ${msg.pcsUnit}`,
         },
         {
-          label:
-            locale === 'en'
-              ? `Bedding sand (${formatNumber(sandCm, 0, locale)} cm)`
-              : `Asennushiekka (${formatNumber(sandCm, 0, locale)} cm)`,
+          label: msg.beddingSand(formatNumber(sandCm, 0, locale)),
           value: `${formatNumber(sandM3, 1, locale)} m³ (${formatNumber(sandTonnes, 1, locale)} t)`,
         },
         {
-          label: locale === 'en' ? 'Edging / curb (perimeter)' : 'Reunakivet (piiri)',
+          label: msg.edgingPerimeter,
           value: `${formatNumber(edgingM, 1, locale)} m`,
         }
       );
@@ -185,11 +179,11 @@ export function calculateEstimate(input: CalculatorInput): CalculationResult {
       lines.push(
         { label: msg.netArea, value: `${formatNumber(basisValue, 1, locale)} m²` },
         {
-          label: locale === 'en' ? 'Asphalt mass' : 'Asfalttimäärä',
+          label: msg.asphaltMass,
           value: `${formatNumber(totalTonnes, 1, locale)} t`,
         },
         {
-          label: locale === 'en' ? 'Truck loads (15 t)' : 'Kuormat (15 t)',
+          label: msg.asphaltLoads15t,
           value: `${loads} ${msg.pcsUnit}`,
         }
       );
@@ -209,18 +203,15 @@ export function calculateEstimate(input: CalculatorInput): CalculationResult {
 
       lines.push(
         {
-          label: locale === 'en' ? 'In-situ volume' : 'Kiintokuutiot',
+          label: msg.inSituVolume,
           value: `${formatNumber(bankM3, 1, locale)} m³`,
         },
         {
-          label: locale === 'en' ? 'Loose volume (incl. swell)' : 'Irtokuutiot (sis. paisunta)',
+          label: msg.looseVolumeSwell,
           value: `${formatNumber(looseM3, 1, locale)} m³`,
         },
         {
-          label:
-            locale === 'en'
-              ? `Haul loads (${formatNumber(truckLoadM3, 0, locale)} m³)`
-              : `Poisajokuormat (${formatNumber(truckLoadM3, 0, locale)} m³)`,
+          label: msg.haulLoads(formatNumber(truckLoadM3, 0, locale)),
           value: `${loads} ${msg.pcsUnit}`,
         }
       );
@@ -237,11 +228,11 @@ export function calculateEstimate(input: CalculatorInput): CalculationResult {
 
       lines.push(
         {
-          label: locale === 'en' ? 'Area (hectares)' : 'Pinta-ala',
+          label: msg.areaHectares,
           value: `${formatNumber(ha, 2, locale)} ha`,
         },
         {
-          label: locale === 'en' ? 'Estimated seedlings' : 'Taimimäärä',
+          label: msg.estimatedSeedlings,
           value: `${formatNumber(seedlings, 0, locale)} ${msg.pcsUnit}`,
         }
       );

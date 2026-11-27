@@ -7,7 +7,6 @@ export interface Messages {
     searching: string;
     clearSearch: string;
     locateTooltip: string;
-    layersTooltip: string;
     baseMapHeading: string;
     overlaysHeading: string;
     parcelsLabel: string;
@@ -27,8 +26,6 @@ export interface Messages {
     lineTooltip: string;
     addPoint: string;
     addPointTooltip: string;
-    showCrosshairTooltip: string;
-    hideCrosshairTooltip: string;
     undoTooltip: string;
     clearTooltip: string;
     calculateMobile: string;
@@ -49,7 +46,6 @@ export interface Messages {
   };
   panel: {
     heading: string;
-    hintPick: string;
     hintArea: string;
     hintCutout: string;
     hintLine: string;
@@ -68,7 +64,6 @@ export interface Messages {
     cutout: string;
     line: string;
     slopeLabel: string;
-    slopeFlat: string;
     slopeExtra: (pct: string) => string;
     presetTitle: string;
     paramsTitle: string;
@@ -76,7 +71,6 @@ export interface Messages {
     estimateTitle: string;
     basisArea: string;
     basisLine: string;
-    emptyAreaHint: string;
     emptyLineHint: string;
     subtotalLabel: string;
     vatRowLabel: (vat: string) => string;
@@ -118,6 +112,17 @@ export interface Messages {
     visitsCount: string;
     measuredQty: string;
     pcsUnit: string;
+    paversInclWaste: string;
+    pallets: (sqm: string) => string;
+    beddingSand: (cm: string) => string;
+    edgingPerimeter: string;
+    asphaltMass: string;
+    asphaltLoads15t: string;
+    inSituVolume: string;
+    looseVolumeSwell: string;
+    haulLoads: (m3: string) => string;
+    areaHectares: string;
+    estimatedSeedlings: string;
   };
   pdf: {
     defaultTitle: string;
@@ -135,12 +140,17 @@ export interface Messages {
     measuredLine: string;
     accuracyLabel: string;
     sectionEstimate: (presetName: string) => string;
+    sectionItemized: string;
     subtotal: string;
     vat: (vat: string) => string;
     total: string;
     disclaimer: string;
     footerBrand: string;
     filePrefix: string;
+    appendixTitle: string;
+    notesHeading: string;
+    photosHeading: (count: number) => string;
+    photoFallbackName: (index: number) => string;
   };
   layers: {
     satellite: string;

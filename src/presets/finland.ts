@@ -4,7 +4,7 @@ import type { Locale } from '../i18n/types';
 /** Suomen vakio-ALV 25,5 % */
 export const DEFAULT_VAT_RATE_PCT = 25.5;
 
-export const FINLAND_PRESETS: MaterialPreset[] = [
+const FINLAND_PRESETS: MaterialPreset[] = [
   {
     id: 'murske',
     name: 'Murske / sora',

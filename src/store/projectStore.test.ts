@@ -53,4 +53,43 @@ describe('projectStore sanitizeProject', () => {
     expect(clean!.quoteItems).toHaveLength(1);
     expect(clean!.quoteItems[0]?.label).toBe('710-585-1-1');
   });
+
+  it('rejects unsafe logo/photo URLs (SVG, javascript:, http:) and non-finite params', () => {
+    const validPng = 'data:image/png;base64,iVBORw0KGgo=';
+    const validJpeg = 'data:image/jpeg;base64,/9j/4AAQ=';
+
+    const clean = sanitizeProject({
+      id: 'proj_sec',
+      params: {
+        depthCm: 15,
+        badNaN: Number.NaN,
+        badInf: Number.POSITIVE_INFINITY,
+        badStr: '100',
+        constructor: 99,
+      },
+      company: {
+        name: 'Test Oy',
+        logoDataUrl: 'data:image/svg+xml;base64,PHN2Zz48c2NyaXB0Lz48L3N2Zz4=',
+      },
+      sitePhotos: [
+        { id: 'svg', dataUrl: 'data:image/svg+xml;base64,PHN2Zz4=', name: 'x.svg' },
+        { id: 'js', dataUrl: 'javascript:alert(1)', name: 'bad' },
+        { id: 'ok1', dataUrl: validJpeg, name: 'site.jpg' },
+        { id: 'ok2', dataUrl: validPng, name: 'site2.png' },
+      ],
+    });
+
+    expect(clean).not.toBeNull();
+    expect(clean!.company.logoDataUrl).toBeUndefined();
+    expect(clean!.sitePhotos).toHaveLength(2);
+    expect(clean!.sitePhotos.map((p) => p.id)).toEqual(['ok1', 'ok2']);
+    expect(clean!.params).toEqual({ depthCm: 15 });
+
+    const withValidLogo = sanitizeProject({
+      company: { logoDataUrl: validPng },
+      params: [1, 2, 3],
+    });
+    expect(withValidLogo!.company.logoDataUrl).toBe(validPng);
+    expect(withValidLogo!.params).toEqual({});
+  });
 });

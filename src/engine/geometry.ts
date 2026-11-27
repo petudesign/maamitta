@@ -12,6 +12,49 @@ import type {
   MeasurementSummary,
 } from './types';
 
+/** Computes the arithmetic centroid of a coordinate array. */
+export function computeCentroid(points: LngLat[]): LngLat | null {
+  if (points.length === 0) return null;
+  let lng = 0;
+  let lat = 0;
+  for (const [x, y] of points) {
+    lng += x;
+    lat += y;
+  }
+  return [lng / points.length, lat / points.length];
+}
+
+/** Computes the [sw, ne] WGS84 bounding box for a non-empty coordinate array. */
+export function computeBounds(
+  points: LngLat[]
+): [[number, number], [number, number]] | null {
+  if (points.length === 0) return null;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  for (const [lng, lat] of points) {
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+  }
+  return [
+    [minLng, minLat],
+    [maxLng, maxLat],
+  ];
+}
+
+/** Collects all coordinate points from a MeasurementGeometry. */
+export function collectGeometryPoints(geom: MeasurementGeometry): LngLat[] {
+  return [
+    ...geom.areaPoints,
+    ...geom.linePoints,
+    ...geom.activeCutout,
+    ...geom.cutouts.flat(),
+  ];
+}
+
 /** Closes a ring if it has at least 3 distinct vertices. */
 export function toClosedRing(points: LngLat[]): LngLat[] | null {
   if (points.length < 3) return null;

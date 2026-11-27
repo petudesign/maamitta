@@ -27,14 +27,19 @@ interface PostHogStub extends Array<unknown> {
 
 let loaded = false;
 
-export function getPostHogKey(): string {
+function getPostHogKey(): string {
   return (import.meta.env.VITE_POSTHOG_KEY ?? '').trim();
 }
 
-export function getPostHogHost(): string {
-  return (
-    (import.meta.env.VITE_POSTHOG_HOST ?? '').trim() || 'https://eu.i.posthog.com'
-  );
+function getPostHogHost(): string {
+  const raw = (import.meta.env.VITE_POSTHOG_HOST ?? '').trim();
+  if (!raw) return 'https://eu.i.posthog.com';
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === 'https:' ? parsed.origin : 'https://eu.i.posthog.com';
+  } catch {
+    return 'https://eu.i.posthog.com';
+  }
 }
 
 export function isPostHogConfigured(): boolean {
@@ -127,12 +132,16 @@ export function initPostHog(): void {
     script.async = true;
     script.crossOrigin = 'anonymous';
     script.src = `${assetsHost}/static/array.js`;
+    script.onerror = () => {
+      loaded = false;
+      ph.length = 0;
+    };
     document.head.appendChild(script);
   }
 
   ph.init?.(key, {
     api_host: apiHost,
-    persistence: 'localStorage',
+    persistence: 'memory',
     person_profiles: 'identified_only',
     autocapture: true,
     capture_pageview: true,

@@ -1,3 +1,5 @@
+import { fetchWithTimeout, safeReadJson } from './http';
+
 export interface GeocoderResult {
   id: string;
   label: string;
@@ -33,29 +35,40 @@ export async function searchAddress(
     'accept-language': 'fi',
   });
 
-  const response = await fetch(
-    `https://nominatim.openstreetmap.org/search?${params.toString()}`,
-    {
-      signal,
-      headers: {
-        Accept: 'application/json',
+  try {
+    const response = await fetchWithTimeout(
+      `https://nominatim.openstreetmap.org/search?${params.toString()}`,
+      {
+        headers: {
+          Accept: 'application/json',
+        },
       },
+      6000,
+      signal
+    );
+
+    if (!response.ok) return [];
+    const data = await safeReadJson<NominatimItem[]>(response);
+    if (!Array.isArray(data)) return [];
+
+    const results: GeocoderResult[] = [];
+    for (const item of data) {
+      const lng = Number(item.lon);
+      const lat = Number(item.lat);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+      const parts = item.display_name.split(',').map((s) => s.trim());
+      const primary = item.name || parts[0] || item.display_name;
+      const subtitle = parts.slice(1, 4).join(', ');
+      results.push({
+        id: String(item.place_id),
+        label: primary,
+        subtitle,
+        lng,
+        lat,
+      });
     }
-  );
-
-  if (!response.ok) return [];
-  const data = (await response.json()) as NominatimItem[];
-
-  return data.map((item) => {
-    const parts = item.display_name.split(',').map((s) => s.trim());
-    const primary = item.name || parts[0] || item.display_name;
-    const subtitle = parts.slice(1, 4).join(', ');
-    return {
-      id: String(item.place_id),
-      label: primary,
-      subtitle,
-      lng: Number(item.lon),
-      lat: Number(item.lat),
-    };
-  });
+    return results;
+  } catch {
+    return [];
+  }
 }

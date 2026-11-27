@@ -8,6 +8,7 @@ import type {
   SitePhoto,
 } from '../engine/types';
 import { getMessages, type Locale } from '../i18n';
+import { MAX_SITE_PHOTOS } from './imageCompress';
 
 export interface PdfQuoteInput {
   company: CompanyInfo;
@@ -297,11 +298,7 @@ export function downloadPdfQuote(input: PdfQuoteInput): void {
 
   const hasMultiItems = quoteItems.length > 0;
   doc.text(
-    hasMultiItems
-      ? locale === 'en'
-        ? '2. Itemized Material & Price Estimate'
-        : '2. Erittely: työlajit ja materiaalit'
-      : t.sectionEstimate(estimate.presetName),
+    hasMultiItems ? t.sectionItemized : t.sectionEstimate(estimate.presetName),
     margin,
     y
   );
@@ -466,7 +463,7 @@ export function downloadPdfQuote(input: PdfQuoteInput): void {
   // Optional clean A4 appendix page for site notes and/or site photos
   const cleanNote = includeSiteNoteInPdf ? pdfSafeText(siteNote) : '';
   const includedPhotos = includeSitePhotosInPdf
-    ? sitePhotos.slice(0, 3)
+    ? sitePhotos.slice(0, MAX_SITE_PHOTOS)
     : [];
 
   if (cleanNote || includedPhotos.length > 0) {
@@ -476,11 +473,7 @@ export function downloadPdfQuote(input: PdfQuoteInput): void {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
     doc.setTextColor(20, 26, 24);
-    const appendixTitle =
-      locale === 'en'
-        ? 'Site notes & photos'
-        : 'Kohteen muistiinpanot ja valokuvat';
-    doc.text(appendixTitle, margin, ay);
+    doc.text(t.appendixTitle, margin, ay);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
@@ -498,11 +491,7 @@ export function downloadPdfQuote(input: PdfQuoteInput): void {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.setTextColor(20, 26, 24);
-      doc.text(
-        locale === 'en' ? 'Notes' : 'Huomiot kohteesta',
-        margin,
-        ay
-      );
+      doc.text(t.notesHeading, margin, ay);
       ay += 5;
 
       doc.setFont('helvetica', 'normal');
@@ -521,13 +510,7 @@ export function downloadPdfQuote(input: PdfQuoteInput): void {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.setTextColor(20, 26, 24);
-      doc.text(
-        locale === 'en'
-          ? `Site photos (${includedPhotos.length})`
-          : `Valokuvat kohteesta (${includedPhotos.length})`,
-        margin,
-        ay
-      );
+      doc.text(t.photosHeading(includedPhotos.length), margin, ay);
       ay += 5;
 
       const cols = includedPhotos.length === 1 ? 1 : 2;
@@ -564,7 +547,7 @@ export function downloadPdfQuote(input: PdfQuoteInput): void {
           doc.setFontSize(8);
           doc.setTextColor(110, 123, 118);
           doc.text(
-            pdfSafeText(photo.name || `Kuva ${idx + 1}`).slice(0, 44),
+            pdfSafeText(photo.name || t.photoFallbackName(idx + 1)).slice(0, 44),
             x,
             yPos + cellH + 4.5
           );

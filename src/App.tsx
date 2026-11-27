@@ -1,6 +1,18 @@
 import { ChevronDown, ChevronUp, Layers } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { bucketAreaSqm, trackEvent } from './analytics/track';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import {
+  EMPTY_GEOMETRY,
+  makeFreshProject,
+  useProjectLibrary,
+} from './hooks/useProjectLibrary';
+import { useStatusToast } from './hooks/useStatusToast';
+import {
+  deleteVertexInGeometry,
+  insertVertexInGeometry,
+  moveVertexInGeometry,
+} from './hooks/vertexGeometry';
 import { calculateEstimate } from './engine/calculator';
 import { summarizeGeometry } from './engine/geometry';
 import {
@@ -35,17 +47,16 @@ import {
   estimateTerrainSlope,
   formatSlopeDirection,
 } from './map/elevation';
-import { BASE_LAYERS, type BaseLayerId, IS_MML_ENABLED } from './map/providers';
 import {
-  DEFAULT_VAT_RATE_PCT,
-  getDefaultParamValues,
-  getPresetById,
-} from './presets/finland';
-import {
-  createProjectId,
-  projectRepository,
-  type SavedProject,
-} from './store/projectStore';
+  BASE_LAYERS,
+  type BaseLayerId,
+  FINLAND_BOUNDS,
+  IS_MML_ENABLED,
+} from './map/providers';
+import { MAX_SITE_PHOTOS } from './export/imageCompress';
+import { DEMO_YARD_GEOMETRY, DEMO_YARD_PARCEL_CODE } from './presets/demoYard';
+import { getDefaultParamValues, getPresetById } from './presets/finland';
+import { createProjectId, type SavedProject } from './store/projectStore';
 import { priceBookRepository } from './store/priceBookStore';
 import { BetaConsentBanner } from './ui/BetaConsentBanner';
 import { CalculatorPanel } from './ui/CalculatorPanel';
@@ -59,83 +70,23 @@ import { TopBar } from './ui/TopBar';
 import { NotFoundView } from './ui/NotFoundView';
 import { QuoteItemsList } from './ui/QuoteItemsList';
 
-const EMPTY_GEOMETRY: MeasurementGeometry = {
-  areaPoints: [],
-  cutouts: [],
-  activeCutout: [],
-  linePoints: [],
-};
-
-const DEFAULT_COMPANY: CompanyInfo = {
-  name: '',
-  contact: '',
-  projectTitle: 'Pihan mittaus- ja materiaaliarvio',
-  address: '',
-};
-
-function makeFreshProject(
-  companySeed?: Partial<CompanyInfo>,
-  locale: Locale = 'fi',
-  priceBook: PriceBook = DEFAULT_PRICE_BOOK
-): SavedProject {
-  const defaultPreset = getPresetById('murske', locale);
-  const resolved = resolvePresetDefaults(defaultPreset, priceBook);
-  return {
-    id: createProjectId(),
-    geometry: EMPTY_GEOMETRY,
-    geometrySource: 'manual',
-    parcelCode: null,
-    slopePct: 0,
-    presetId: defaultPreset.id,
-    params: resolved.params,
-    unitPriceEur: resolved.unitPriceEur,
-    vatRatePct: DEFAULT_VAT_RATE_PCT,
-    company: {
-      ...DEFAULT_COMPANY,
-      projectTitle:
-        locale === 'en'
-          ? 'Site measurement & material estimate'
-          : DEFAULT_COMPANY.projectTitle,
-      name: companySeed?.name ?? '',
-      contact: companySeed?.contact ?? '',
-      logoDataUrl: companySeed?.logoDataUrl,
-    },
-    quoteItems: [],
-    siteNote: '',
-    includeSiteNoteInPdf: true,
-    sitePhotos: [],
-    includeSitePhotosInPdf: true,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
 export function App() {
   const [priceBook, setPriceBook] = useState<PriceBook>(() =>
     priceBookRepository.load()
   );
-  const [storageWarning, setStorageWarning] = useState<string | null>(null);
-
-  const initialLib = useMemo(() => {
-    const loaded = projectRepository.loadLibrary();
-    if (loaded) return loaded;
-    const first = makeFreshProject(undefined, 'fi', priceBookRepository.load());
-    return { activeProjectId: first.id, projects: [first] };
-  }, []);
-
-  const [projects, setProjects] = useState<SavedProject[]>(initialLib.projects);
-  const [activeProjectId, setActiveProjectId] = useState<string>(
-    initialLib.activeProjectId
-  );
-
-  const initial = useMemo(
-    () =>
-      initialLib.projects.find((p) => p.id === initialLib.activeProjectId) ??
-      initialLib.projects[0]!,
-    [initialLib]
-  );
-
   const [locale, setLocale] = useState<Locale>(() => loadInitialLocale());
   const msg = useMemo(() => getMessages(locale), [locale]);
+
+  const {
+    projects,
+    setProjects,
+    activeProjectId,
+    setActiveProjectId,
+    initialProject: initial,
+    storageWarning,
+    setStorageWarning,
+    syncActiveProject,
+  } = useProjectLibrary(priceBook, locale);
 
   const handleChangeLocale = useCallback((next: Locale) => {
     setLocale(next);
@@ -163,7 +114,7 @@ export function App() {
   const crosshairHintShownRef = useRef(false);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [mapLayersOpen, setMapLayersOpen] = useState(true);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const { statusMessage, showStatus } = useStatusToast();
   const [isAutoSubtracting, setIsAutoSubtracting] = useState(false);
   const [isEstimatingSlope, setIsEstimatingSlope] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -178,31 +129,17 @@ export function App() {
   } | null>(null);
   const clearUndoTimerRef = useRef<number | null>(null);
   const undoStackRef = useRef<MeasurementGeometry[]>([]);
-  const statusTimerRef = useRef<number | null>(null);
   const pickAbortRef = useRef<AbortController | null>(null);
   const slopeAbortRef = useRef<AbortController | null>(null);
 
   // Clean up timers & in-flight requests on unmount
   useEffect(() => {
     return () => {
-      if (statusTimerRef.current) window.clearTimeout(statusTimerRef.current);
       if (clearUndoTimerRef.current)
         window.clearTimeout(clearUndoTimerRef.current);
       pickAbortRef.current?.abort();
       slopeAbortRef.current?.abort();
     };
-  }, []);
-
-  const showStatus = useCallback((msgText: string, durationMs = 2600) => {
-    setStatusMessage(msgText);
-    if (statusTimerRef.current) {
-      window.clearTimeout(statusTimerRef.current);
-    }
-    if (durationMs > 0) {
-      statusTimerRef.current = window.setTimeout(() => {
-        setStatusMessage(null);
-      }, durationMs);
-    }
   }, []);
 
   const [geometry, setGeometry] = useState<MeasurementGeometry>(
@@ -243,37 +180,27 @@ export function App() {
   );
 
   const mapRef = useRef<MapCanvasHandle | null>(null);
-  const latestLibraryRef = useRef({ activeProjectId, projects });
 
   // Keep active project synced in memory
   useEffect(() => {
-    const updatedAt = new Date().toISOString();
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === activeProjectId
-          ? {
-              ...p,
-              geometry,
-              geometrySource,
-              parcelCode,
-              slopePct,
-              presetId,
-              params,
-              unitPriceEur,
-              vatRatePct,
-              company,
-              quoteItems,
-              siteNote,
-              includeSiteNoteInPdf,
-              sitePhotos,
-              includeSitePhotosInPdf,
-              updatedAt,
-            }
-          : p
-      )
-    );
+    syncActiveProject({
+      geometry,
+      geometrySource,
+      parcelCode,
+      slopePct,
+      presetId,
+      params,
+      unitPriceEur,
+      vatRatePct,
+      company,
+      quoteItems,
+      siteNote,
+      includeSiteNoteInPdf,
+      sitePhotos,
+      includeSitePhotosInPdf,
+    });
   }, [
-    activeProjectId,
+    syncActiveProject,
     geometry,
     geometrySource,
     parcelCode,
@@ -289,35 +216,6 @@ export function App() {
     sitePhotos,
     includeSitePhotosInPdf,
   ]);
-
-  // Debounced localStorage persistence (avoids 60fps serialization during vertex drag)
-  useEffect(() => {
-    latestLibraryRef.current = { activeProjectId, projects };
-    const timer = window.setTimeout(() => {
-      const ok = projectRepository.saveLibrary(latestLibraryRef.current);
-      if (!ok) {
-        setStorageWarning(
-          locale === 'en'
-            ? 'Browser storage is full — remove a site photo or old project to save changes.'
-            : 'Selaimen tallennustila on täynnä — poista kuva tai vanha kohde tallentaaksesi muutokset.'
-        );
-      } else {
-        setStorageWarning(null);
-      }
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [activeProjectId, projects, locale]);
-
-  // Flush pending project edits on tab close / reload
-  useEffect(() => {
-    const flush = () => projectRepository.saveLibrary(latestLibraryRef.current);
-    window.addEventListener('pagehide', flush);
-    window.addEventListener('beforeunload', flush);
-    return () => {
-      window.removeEventListener('pagehide', flush);
-      window.removeEventListener('beforeunload', flush);
-    };
-  }, []);
 
   const loadProjectIntoEditor = useCallback((proj: SavedProject) => {
     // Cancel any in-flight async requests belonging to the previous project
@@ -362,11 +260,7 @@ export function App() {
 
   const handleCreateProject = useCallback(() => {
     const fresh = makeFreshProject(company, locale, priceBook);
-    setProjects((prev) => {
-      const next = [fresh, ...prev];
-      projectRepository.saveLibrary({ activeProjectId: fresh.id, projects: next });
-      return next;
-    });
+    setProjects((prev) => [fresh, ...prev]);
     loadProjectIntoEditor(fresh);
   }, [company, locale, priceBook, loadProjectIntoEditor]);
 
@@ -383,11 +277,7 @@ export function App() {
         },
         updatedAt: new Date().toISOString(),
       };
-      setProjects((prev) => {
-        const next = [copy, ...prev];
-        projectRepository.saveLibrary({ activeProjectId: copy.id, projects: next });
-        return next;
-      });
+      setProjects((prev) => [copy, ...prev]);
       loadProjectIntoEditor(copy);
     },
     [projects, locale, loadProjectIntoEditor]
@@ -399,8 +289,8 @@ export function App() {
         setCompany((prev) => ({ ...prev, projectTitle: title }));
         return;
       }
-      setProjects((prev) => {
-        const next = prev.map((p) =>
+      setProjects((prev) =>
+        prev.map((p) =>
           p.id === id
             ? {
                 ...p,
@@ -408,10 +298,8 @@ export function App() {
                 updatedAt: new Date().toISOString(),
               }
             : p
-        );
-        projectRepository.saveLibrary({ activeProjectId, projects: next });
-        return next;
-      });
+        )
+      );
     },
     [activeProjectId]
   );
@@ -423,12 +311,6 @@ export function App() {
       setProjects(next);
       if (id === activeProjectId && next[0]) {
         loadProjectIntoEditor(next[0]);
-        projectRepository.saveLibrary({
-          activeProjectId: next[0].id,
-          projects: next,
-        });
-      } else {
-        projectRepository.saveLibrary({ activeProjectId, projects: next });
       }
     },
     [projects, activeProjectId, loadProjectIntoEditor]
@@ -514,7 +396,8 @@ export function App() {
     async (pt: LngLat, shiftKey = false) => {
       if (activeTool === 'pan') return;
       if (activeTool === 'pick') {
-        if (pt[0] < 19.0 || pt[0] > 31.6 || pt[1] < 59.4 || pt[1] > 70.1) {
+        const [[minLng, minLat], [maxLng, maxLat]] = FINLAND_BOUNDS;
+        if (pt[0] < minLng || pt[0] > maxLng || pt[1] < minLat || pt[1] > maxLat) {
           showStatus(
             locale === 'en'
               ? 'Official parcel picking works in Finland — draw manually with the Area tool.'
@@ -533,11 +416,24 @@ export function App() {
           pointInRing(pt, geometry.areaPoints);
 
         showStatus(msg.status.fetchingBoundary, 0);
-        const outcome = await pickBoundaryAtPoint(
-          pt,
-          insideExistingArea,
-          controller.signal
-        );
+        let outcome;
+        try {
+          outcome = await pickBoundaryAtPoint(
+            pt,
+            insideExistingArea,
+            controller.signal
+          );
+        } catch {
+          if (!controller.signal.aborted) {
+            showStatus(
+              locale === 'en'
+                ? 'Could not fetch boundary — try again or draw manually.'
+                : 'Rajan haku epäonnistui — yritä uudelleen tai piirrä käsin.',
+              3800
+            );
+          }
+          return;
+        }
 
         if (controller.signal.aborted) return;
 
@@ -620,6 +516,10 @@ export function App() {
                   buildingsSubtracted: 0,
                   shiftMulti: Boolean(shiftKey),
                 });
+              }
+            } catch {
+              if (!controller.signal.aborted) {
+                showStatus(`${msg.status.pickedPrefix} ${picked.label}`, 2600);
               }
             } finally {
               if (!controller.signal.aborted) {
@@ -788,41 +688,17 @@ export function App() {
   }, [locale, showStatus]);
 
   const handleLoadDemoYard = useCallback(() => {
-    // Real public parcel in Oulunkylä, Helsinki (MML 91-422-6-59) with its MML building footprint
-    const demoGeometry: MeasurementGeometry = {
-      areaPoints: [
-        [24.967338, 60.229502],
-        [24.967771, 60.229287],
-        [24.966879, 60.228833],
-        [24.966674, 60.228932],
-        [24.966666, 60.228979],
-        [24.966972, 60.229132],
-        [24.966859, 60.229192],
-        [24.966995, 60.229262],
-        [24.966933, 60.229292],
-      ],
-      cutouts: [
-        [
-          [24.966797, 60.229005],
-          [24.967161, 60.229196],
-          [24.96735, 60.229106],
-          [24.966985, 60.228916],
-        ],
-      ],
-      activeCutout: [],
-      linePoints: [],
-    };
     const defaultPreset = getPresetById('murske', locale);
     const resolved = resolvePresetDefaults(defaultPreset, priceBook);
     setPresetId(defaultPreset.id);
     setParams(resolved.params);
     setUnitPriceEur(resolved.unitPriceEur);
-    setGeometry(demoGeometry);
+    setGeometry(DEMO_YARD_GEOMETRY);
     setGeometrySource('mml');
-    setParcelCode('91-422-6-59');
+    setParcelCode(DEMO_YARD_PARCEL_CODE);
     setSlopePct(0);
     setActiveTool('pick');
-    mapRef.current?.fitGeometry(demoGeometry, true);
+    mapRef.current?.fitGeometry(DEMO_YARD_GEOMETRY, true);
     showStatus(
       locale === 'en'
         ? 'Loaded real Helsinki parcel (building subtracted) — drag any corner to test!'
@@ -875,6 +751,15 @@ export function App() {
           : `Korkeusero ${res.dropM.toFixed(1).replace('.', ',')} m (${dirText}) → kaltevuus ${res.estimatedSlopePct} %`,
         4200
       );
+    } catch {
+      if (!controller.signal.aborted) {
+        showStatus(
+          locale === 'en'
+            ? 'Could not fetch elevation data — set slope manually.'
+            : 'Korkeustietoa ei saatu — valitse kaltevuus käsin.',
+          3600
+        );
+      }
     } finally {
       if (!controller.signal.aborted) {
         setIsEstimatingSlope(false);
@@ -907,109 +792,37 @@ export function App() {
       } else {
         showStatus(msg.status.noBuildingsFound, 3000);
       }
+    } catch {
+      if (!controller.signal.aborted) {
+        showStatus(
+          locale === 'en'
+            ? 'Building lookup failed — try again or use Cutout.'
+            : 'Rakennusten haku epäonnistui — yritä uudelleen tai vähennä käsin.',
+          3600
+        );
+      }
     } finally {
       if (!controller.signal.aborted) {
         setIsAutoSubtracting(false);
       }
     }
-  }, [geometry.areaPoints, msg.status, showStatus]);
+  }, [geometry.areaPoints, locale, msg.status, showStatus]);
 
   const handleMoveVertex = useCallback((target: VertexRef, nextPoint: LngLat) => {
-    setGeometry((prev) => {
-      if (target.collection === 'area') {
-        const next = [...prev.areaPoints];
-        if (target.vertexIndex >= 0 && target.vertexIndex < next.length) {
-          next[target.vertexIndex] = nextPoint;
-        }
-        return { ...prev, areaPoints: next };
-      }
-      if (target.collection === 'activeCutout') {
-        const next = [...prev.activeCutout];
-        if (target.vertexIndex >= 0 && target.vertexIndex < next.length) {
-          next[target.vertexIndex] = nextPoint;
-        }
-        return { ...prev, activeCutout: next };
-      }
-      if (target.collection === 'cutout') {
-        const nextCutouts = prev.cutouts.map((ring, idx) => {
-          if (idx !== target.cutoutIndex) return ring;
-          const next = [...ring];
-          if (target.vertexIndex >= 0 && target.vertexIndex < next.length) {
-            next[target.vertexIndex] = nextPoint;
-          }
-          return next;
-        });
-        return { ...prev, cutouts: nextCutouts };
-      }
-      const next = [...prev.linePoints];
-      if (target.vertexIndex >= 0 && target.vertexIndex < next.length) {
-        next[target.vertexIndex] = nextPoint;
-      }
-      return { ...prev, linePoints: next };
-    });
+    setGeometry((prev) => moveVertexInGeometry(prev, target, nextPoint));
   }, []);
 
   const handleInsertVertex = useCallback((target: VertexRef, point: LngLat) => {
-    setGeometry((prev) => {
-      if (target.collection === 'area') {
-        const next = [...prev.areaPoints];
-        next.splice(target.vertexIndex, 0, point);
-        return { ...prev, areaPoints: next };
-      }
-      if (target.collection === 'activeCutout') {
-        const next = [...prev.activeCutout];
-        next.splice(target.vertexIndex, 0, point);
-        return { ...prev, activeCutout: next };
-      }
-      if (target.collection === 'cutout') {
-        const nextCutouts = prev.cutouts.map((ring, idx) => {
-          if (idx !== target.cutoutIndex) return ring;
-          const next = [...ring];
-          next.splice(target.vertexIndex, 0, point);
-          return next;
-        });
-        return { ...prev, cutouts: nextCutouts };
-      }
-      const next = [...prev.linePoints];
-      next.splice(target.vertexIndex, 0, point);
-      return { ...prev, linePoints: next };
-    });
+    setGeometry((prev) => insertVertexInGeometry(prev, target, point));
   }, []);
 
   const handleDeleteVertex = useCallback(
     (target: VertexRef) => {
       pushUndoSnapshot(geometry);
-      setGeometry((prev) => {
-      if (target.collection === 'area') {
-        return {
-          ...prev,
-          areaPoints: prev.areaPoints.filter((_, i) => i !== target.vertexIndex),
-        };
-      }
-      if (target.collection === 'activeCutout') {
-        return {
-          ...prev,
-          activeCutout: prev.activeCutout.filter(
-            (_, i) => i !== target.vertexIndex
-          ),
-        };
-      }
-      if (target.collection === 'cutout') {
-        const nextCutouts = prev.cutouts
-          .map((ring, idx) =>
-            idx === target.cutoutIndex
-              ? ring.filter((_, i) => i !== target.vertexIndex)
-              : ring
-          )
-          .filter((ring) => ring.length >= 3);
-        return { ...prev, cutouts: nextCutouts };
-      }
-      return {
-        ...prev,
-        linePoints: prev.linePoints.filter((_, i) => i !== target.vertexIndex),
-      };
-    });
-  }, [geometry, pushUndoSnapshot]);
+      setGeometry((prev) => deleteVertexInGeometry(prev, target));
+    },
+    [geometry, pushUndoSnapshot]
+  );
 
   const handleSelectPreset = useCallback(
     (nextId: string) => {
@@ -1079,17 +892,30 @@ export function App() {
   }, [locale, preset.id, showStatus]);
 
   const handleLocateUser = useCallback(() => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      showStatus(
+        locale === 'en'
+          ? 'Geolocation is not supported in this browser.'
+          : 'Selain ei tue sijaintitietoa.',
+        3200
+      );
+      return;
+    }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         mapRef.current?.flyTo(pos.coords.longitude, pos.coords.latitude, 17);
       },
       () => {
-        // User declined or location unavailable
+        showStatus(
+          locale === 'en'
+            ? 'Location unavailable — check browser permissions.'
+            : 'Sijaintia ei saatu — tarkista selaimen sijaintilupa.',
+          3400
+        );
       },
       { enableHighAccuracy: true, timeout: 8000 }
     );
-  }, []);
+  }, [locale, showStatus]);
 
   const handleAddQuoteItem = useCallback(() => {
     if (estimate.basisValue <= 0) return;
@@ -1204,9 +1030,10 @@ export function App() {
       setActiveTool('area');
       if (preset.basis === 'line') {
         const gravel = getPresetById('murske', locale);
+        const resolved = resolvePresetDefaults(gravel, priceBook);
         setPresetId(gravel.id);
-        setParams(getDefaultParamValues(gravel));
-        setUnitPriceEur(gravel.defaultUnitPriceEur);
+        setParams(resolved.params);
+        setUnitPriceEur(resolved.unitPriceEur);
       }
       mapRef.current?.fitGeometry(nextGeom, true);
       showStatus(
@@ -1216,7 +1043,7 @@ export function App() {
         3000
       );
     },
-    [geometry.linePoints, locale, preset.basis, showStatus]
+    [geometry.linePoints, locale, preset.basis, priceBook, showStatus]
   );
 
   const handleInsertQuickShape = useCallback(
@@ -1244,22 +1071,31 @@ export function App() {
 
   const handleExportGeo = useCallback(
     async (format: 'geojson' | 'kml') => {
-      const { downloadGeoJson, downloadKml } = await import(
-        './export/geoExport'
-      );
-      const payload = {
-        projectTitle: company.projectTitle,
-        parcelCode,
-        geometry,
-        quoteItems,
-      };
-      if (format === 'geojson') {
-        downloadGeoJson(payload);
-      } else {
-        downloadKml(payload);
+      try {
+        const { downloadGeoJson, downloadKml } = await import(
+          './export/geoExport'
+        );
+        const payload = {
+          projectTitle: company.projectTitle,
+          parcelCode,
+          geometry,
+          quoteItems,
+        };
+        if (format === 'geojson') {
+          downloadGeoJson(payload);
+        } else {
+          downloadKml(payload);
+        }
+      } catch {
+        showStatus(
+          locale === 'en'
+            ? 'Export failed — reload the page and try again.'
+            : 'Vienti epäonnistui — lataa sivu uudelleen ja yritä uudelleen.',
+          3800
+        );
       }
     },
-    [company.projectTitle, parcelCode, geometry, quoteItems]
+    [company.projectTitle, geometry, locale, parcelCode, quoteItems, showStatus]
   );
 
   const handleExportPdf = useCallback(async () => {
@@ -1297,6 +1133,13 @@ export function App() {
         presetId: preset.id,
         locale,
       });
+    } catch {
+      showStatus(
+        locale === 'en'
+          ? 'PDF export failed — try again or remove large photos.'
+          : 'PDF-vienti epäonnistui — yritä uudelleen tai tarkista liitetyt kuvat.',
+        4200
+      );
     } finally {
       setIsExportingPdf(false);
     }
@@ -1312,7 +1155,9 @@ export function App() {
     includeSitePhotosInPdf,
     baseLayer,
     geometry,
+    preset.id,
     locale,
+    showStatus,
   ]);
 
   const hasGeometry =
@@ -1323,53 +1168,23 @@ export function App() {
 
   const canUndo = hasGeometry;
 
-  // Desktop keyboard shortcuts (instant, ignored while typing in inputs)
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
+  const handleToggleCrosshair = useCallback(
+    () => setShowCrosshair((prev) => !prev),
+    []
+  );
+  const handleEscape = useCallback(() => {
+    setMobileSheetOpen(false);
+    setConfirmClearOpen(false);
+  }, []);
 
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        handleUndo();
-        return;
-      }
-
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-
-      const key = e.key.toLowerCase();
-      if (key === 'h') {
-        handleSelectTool('pan');
-      } else if (key === 'p') {
-        handleSelectTool('pick');
-      } else if (key === 'a') {
-        handleSelectTool('area');
-      } else if (key === 'v' || key === 'c') {
-        handleSelectTool('cutout');
-      } else if (key === 'l') {
-        handleSelectTool('line');
-      } else if (key === 'x') {
-        setShowCrosshair((prev) => !prev);
-      } else if ((key === ' ' || key === 'enter') && showCrosshair) {
-        e.preventDefault();
-        handlePlaceCrosshairPoint();
-      } else if (key === 'escape') {
-        setMobileSheetOpen(false);
-        setConfirmClearOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleSelectTool, handleUndo, handlePlaceCrosshairPoint, showCrosshair]);
+  useKeyboardShortcuts({
+    showCrosshair,
+    onSelectTool: handleSelectTool,
+    onUndo: handleUndo,
+    onToggleCrosshair: handleToggleCrosshair,
+    onPlaceCrosshairPoint: handlePlaceCrosshairPoint,
+    onEscape: handleEscape,
+  });
 
   const handleFitSelection = useCallback(() => {
     const merged: MeasurementGeometry = {
@@ -1552,7 +1367,7 @@ export function App() {
         onChangeSiteNote={setSiteNote}
         onToggleIncludeSiteNote={setIncludeSiteNoteInPdf}
         onAddSitePhotos={(added) =>
-          setSitePhotos((prev) => [...prev, ...added].slice(0, 3))
+          setSitePhotos((prev) => [...prev, ...added].slice(0, MAX_SITE_PHOTOS))
         }
         onRemoveSitePhoto={(id) =>
           setSitePhotos((prev) => prev.filter((ph) => ph.id !== id))

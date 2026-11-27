@@ -5,6 +5,7 @@ import type {
   QuoteZoneItem,
   SitePhoto,
 } from '../engine/types';
+import { MAX_SITE_PHOTOS } from '../export/imageCompress';
 
 export interface SavedProject {
   id: string;
@@ -115,18 +116,36 @@ function sanitizeQuoteItems(raw: unknown): QuoteZoneItem[] {
   return valid;
 }
 
+const SAFE_RASTER_DATA_URL_RE = /^data:image\/(png|jpeg|webp);base64,/i;
+const FORBIDDEN_PARAM_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function isSafeRasterDataUrl(v: unknown): v is string {
+  return typeof v === 'string' && SAFE_RASTER_DATA_URL_RE.test(v);
+}
+
+function sanitizeParams(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const clean: Record<string, number> = {};
+  for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (FORBIDDEN_PARAM_KEYS.has(key)) continue;
+    if (typeof val === 'number' && Number.isFinite(val)) {
+      clean[key] = val;
+    }
+  }
+  return clean;
+}
+
 function sanitizeSitePhotos(raw: unknown): SitePhoto[] {
   if (!Array.isArray(raw)) return [];
   const valid: SitePhoto[] = [];
   for (const item of raw) {
-    if (valid.length >= 3) break;
+    if (valid.length >= MAX_SITE_PHOTOS) break;
     if (!item || typeof item !== 'object') continue;
     const photo = item as Partial<SitePhoto>;
     if (
       typeof photo.id === 'string' &&
       photo.id &&
-      typeof photo.dataUrl === 'string' &&
-      photo.dataUrl.startsWith('data:image/')
+      isSafeRasterDataUrl(photo.dataUrl)
     ) {
       valid.push({
         id: photo.id,
@@ -160,7 +179,7 @@ export function sanitizeProject(raw: unknown): SavedProject | null {
     parcelCode: typeof p.parcelCode === 'string' ? p.parcelCode : null,
     slopePct: typeof p.slopePct === 'number' && Number.isFinite(p.slopePct) ? p.slopePct : 0,
     presetId: typeof p.presetId === 'string' ? p.presetId : 'murske',
-    params: p.params && typeof p.params === 'object' ? p.params : {},
+    params: sanitizeParams(p.params),
     unitPriceEur:
       typeof p.unitPriceEur === 'number' && Number.isFinite(p.unitPriceEur)
         ? p.unitPriceEur
@@ -177,10 +196,9 @@ export function sanitizeProject(raw: unknown): SavedProject | null {
           ? p.company.projectTitle
           : 'Pihan mittaus- ja materiaaliarvio',
       address: typeof p.company?.address === 'string' ? p.company.address : '',
-      logoDataUrl:
-        typeof p.company?.logoDataUrl === 'string'
-          ? p.company.logoDataUrl
-          : undefined,
+      logoDataUrl: isSafeRasterDataUrl(p.company?.logoDataUrl)
+        ? p.company.logoDataUrl
+        : undefined,
     },
     quoteItems: sanitizeQuoteItems(p.quoteItems),
     siteNote: typeof p.siteNote === 'string' ? p.siteNote.slice(0, 1200) : '',
@@ -199,7 +217,7 @@ export function sanitizeProject(raw: unknown): SavedProject | null {
  * LocalStorage implementation for multi-project persistence.
  * Swap this class for a SupabaseRepository once user accounts are enabled.
  */
-export class LocalStorageProjectRepository implements ProjectRepository {
+class LocalStorageProjectRepository implements ProjectRepository {
   loadLibrary(): ProjectLibraryState | null {
     try {
       const rawV2 = window.localStorage.getItem(LIBRARY_KEY);

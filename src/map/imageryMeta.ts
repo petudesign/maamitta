@@ -1,5 +1,6 @@
 import type { LngLat } from '../engine/types';
 import type { Locale } from '../i18n/types';
+import { fetchWithTimeout, safeReadJson } from './http';
 import type { BaseLayerId } from './providers';
 
 export interface ImageryMeta {
@@ -56,13 +57,15 @@ export async function fetchImageryMeta(
   });
 
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/0/query?${params.toString()}`,
-      { signal }
+      {},
+      5000,
+      signal
     );
     if (!res.ok) return null;
-    const data = (await res.json()) as EsriQueryResponse;
-    const attrs = data.features?.[0]?.attributes;
+    const data = await safeReadJson<EsriQueryResponse>(res);
+    const attrs = data?.features?.[0]?.attributes;
     if (!attrs?.SRC_DATE2) return null;
 
     const captured = new Date(attrs.SRC_DATE2);

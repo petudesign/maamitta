@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { computeLineLengthM, summarizeGeometry } from './geometry';
+import {
+  collectGeometryPoints,
+  computeBounds,
+  computeCentroid,
+  computeLineLengthM,
+  summarizeGeometry,
+} from './geometry';
 import type { LngLat } from './types';
 
 // ~100 m x 100 m square near Helsinki (60.17°N)
@@ -86,5 +92,29 @@ describe('geometry engine', () => {
       flat.netAreaSqm * Math.sqrt(1.09),
       2
     );
+  });
+
+  it('computes centroid, bounds, and collects all geometry points', () => {
+    expect(computeCentroid([])).toBeNull();
+    expect(computeBounds([])).toBeNull();
+
+    const centroid = computeCentroid(square100m);
+    expect(centroid).not.toBeNull();
+    expect(centroid![0]).toBeCloseTo(24.9409025, 5);
+    expect(centroid![1]).toBeCloseTo(60.170449, 5);
+
+    const bounds = computeBounds(square100m);
+    expect(bounds).toEqual([
+      [24.94, 60.17],
+      [24.941805, 60.170898],
+    ]);
+
+    const pts = collectGeometryPoints({
+      areaPoints: square100m,
+      cutouts: [innerCutout],
+      activeCutout: [],
+      linePoints: [[24.95, 60.18]],
+    });
+    expect(pts).toHaveLength(9);
   });
 });

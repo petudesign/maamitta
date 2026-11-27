@@ -1,6 +1,7 @@
-import { computeLineLengthM } from '../engine/geometry';
+import { computeCentroid, computeLineLengthM } from '../engine/geometry';
 import type { LngLat } from '../engine/types';
 import type { Locale } from '../i18n/types';
+import { fetchWithTimeout, safeReadJson } from './http';
 
 export type CompassDirection = 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW';
 
@@ -61,30 +62,22 @@ export async function estimateTerrainSlope(
     if (pt) samplePts.push(pt);
   }
 
-  let cx = 0;
-  let cy = 0;
-  for (const [lng, lat] of areaPoints) {
-    cx += lng;
-    cy += lat;
-  }
-  samplePts.push([cx / areaPoints.length, cy / areaPoints.length]);
+  const centroid = computeCentroid(areaPoints);
+  if (centroid) samplePts.push(centroid);
 
   const lats = samplePts.map((p) => p[1].toFixed(6)).join(',');
   const lngs = samplePts.map((p) => p[0].toFixed(6)).join(',');
 
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 5000);
-  const onExternalAbort = () => controller.abort();
-  externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
-
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lngs}`,
-      { signal: controller.signal }
+      {},
+      5000,
+      externalSignal
     );
     if (!res.ok) return null;
-    const data = (await res.json()) as OpenMeteoElevationResponse;
-    const rawElevations = data.elevation ?? [];
+    const data = await safeReadJson<OpenMeteoElevationResponse>(res);
+    const rawElevations = data?.elevation ?? [];
 
     // Pair elevation with its exact coordinate BEFORE filtering non-finite values
     const pairs: Array<{ elev: number; pt: LngLat }> = [];
@@ -119,8 +112,5 @@ export async function estimateTerrainSlope(
     };
   } catch {
     return null;
-  } finally {
-    window.clearTimeout(timer);
-    externalSignal?.removeEventListener('abort', onExternalAbort);
   }
 }

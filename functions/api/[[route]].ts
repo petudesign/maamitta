@@ -7,6 +7,8 @@
 
 interface Env {
   MML_API_KEY?: string;
+  /** Optional comma-separated list of extra allowed origins (e.g. custom domains) */
+  ALLOWED_ORIGINS?: string;
 }
 
 interface PagesContext {
@@ -14,6 +16,14 @@ interface PagesContext {
   env: Env;
   params: { route?: string[] };
 }
+
+const SAFE_RESPONSE_HEADERS = [
+  'content-type',
+  'content-length',
+  'content-encoding',
+  'etag',
+  'last-modified',
+] as const;
 
 const UPSTREAMS: Record<
   string,
@@ -23,7 +33,7 @@ const UPSTREAMS: Record<
     ttlSeconds: number;
     requiresMmlKey: boolean;
     /** Abort slow upstreams so they don't tie up the browser's tile slots */
-    timeoutMs?: number;
+    timeoutMs: number;
   }
 > = {
   'mml-wmts': {
@@ -31,18 +41,21 @@ const UPSTREAMS: Record<
     pathPrefix: '/avoin/wmts/1.0.0',
     ttlSeconds: 86_400,
     requiresMmlKey: true,
+    timeoutMs: 10_000,
   },
   'mml-features': {
     origin: 'https://avoin-paikkatieto.maanmittauslaitos.fi',
     pathPrefix: '/kiinteisto-avoin/simple-features/v3',
     ttlSeconds: 3_600,
     requiresMmlKey: true,
+    timeoutMs: 10_000,
   },
   'mml-maasto': {
     origin: 'https://avoin-paikkatieto.maanmittauslaitos.fi',
     pathPrefix: '/maastotiedot/features/v1',
     ttlSeconds: 3_600,
     requiresMmlKey: true,
+    timeoutMs: 10_000,
   },
   'gtk-wms': {
     origin: 'https://gtkdata.gtk.fi',
@@ -52,6 +65,44 @@ const UPSTREAMS: Record<
     timeoutMs: 9_000,
   },
 };
+
+function isAllowedOrigin(request: Request, env: Env): boolean {
+  const reqOrigin = new URL(request.url).origin;
+  const secFetchSite = request.headers.get('sec-fetch-site');
+  if (secFetchSite === 'same-origin') return true;
+
+  const extraOrigins = (env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const checkOrigin = (candidate: string): boolean => {
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.origin === reqOrigin) return true;
+      if (extraOrigins.includes(parsed.origin)) return true;
+      if (
+        parsed.hostname === 'localhost' ||
+        parsed.hostname === '127.0.0.1' ||
+        parsed.hostname.endsWith('.pages.dev')
+      ) {
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  const originHeader = request.headers.get('origin');
+  if (originHeader) return checkOrigin(originHeader);
+
+  const refererHeader = request.headers.get('referer');
+  if (refererHeader) return checkOrigin(refererHeader);
+
+  // Reject direct cross-origin/scripted proxy abuse when no same-origin signal is present
+  return false;
+}
 
 function hasUnsafeSegment(segments: string[]): boolean {
   return segments.some((seg) => {
@@ -67,6 +118,16 @@ function hasUnsafeSegment(segments: string[]): boolean {
 }
 
 export const onRequestGet = async (context: PagesContext): Promise<Response> => {
+  if (!isAllowedOrigin(context.request, context.env)) {
+    return new Response('Forbidden', {
+      status: 403,
+      headers: {
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
+  }
+
   const segments = context.params.route ?? [];
   const prefix = segments[0];
   if (!prefix || !(prefix in UPSTREAMS)) {
@@ -165,8 +226,12 @@ export const onRequestGet = async (context: PagesContext): Promise<Response> => 
       return emptyTile();
     }
 
-    const headers = new Headers(upstreamRes.headers);
-    headers.delete('set-cookie');
+    const headers = new Headers();
+    for (const key of SAFE_RESPONSE_HEADERS) {
+      const val = upstreamRes.headers.get(key);
+      if (val) headers.set(key, val);
+    }
+    headers.set('X-Content-Type-Options', 'nosniff');
 
     if (upstreamRes.ok) {
       headers.set(
@@ -181,12 +246,16 @@ export const onRequestGet = async (context: PagesContext): Promise<Response> => 
       status: upstreamRes.status,
       headers,
     });
-  } catch {
+  } catch (err) {
+    console.error(`[api-proxy] upstream error (${prefix}):`, err);
     // Slow/unavailable overlay: return an empty tile quickly instead of hanging the map
     if (isTileOverlay) return emptyTile();
     return new Response('Upstream service unavailable', {
       status: 502,
-      headers: { 'Cache-Control': 'no-store' },
+      headers: {
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      },
     });
   } finally {
     if (timer) clearTimeout(timer);
